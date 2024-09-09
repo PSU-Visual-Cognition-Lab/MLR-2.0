@@ -10,14 +10,14 @@ else:
 # prerequisites
 import torch
 import os
-
-import matplotlib.pyplot as plt
-from mVAE import train, test, vae, optimizer, load_checkpoint
+from MLR_src.mVAE import load_checkpoint, vae_builder
 from torch.utils.data import DataLoader, ConcatDataset
-from dataset_builder import Dataset
+from MLR_src.dataset_builder import Dataset
+from MLR_src.train_mVAE import train_mVAE
 
+folder_name = 'test'
 #torch.set_default_dtype(torch.float64)
-checkpoint_folder_path = f'output_mnist_2drecurr{d}' # the output folder for the trained model versions
+checkpoint_folder_path = f'checkpoints/{folder_name}/' # the output folder for the trained model versions
 
 if not os.path.exists(checkpoint_folder_path):
     os.mkdir(checkpoint_folder_path)
@@ -38,12 +38,13 @@ else:
 
 # to resume training an existing model checkpoint, uncomment the following line with the checkpoints filename
 if load is True:
-    load_checkpoint(f'{checkpoint_folder_path}/checkpoint_most_recent.pth', d)
+    load_checkpoint(f'{checkpoint_folder_path}/mVAE_checkpoint.pth', d)
     print('checkpoint loaded')
 
 bs=100
+vae, z_dim = vae_builder()
 
-# trainging datasets, the return loaders flag is False so the datasets can be concated in the dataloader
+'''# trainging datasets, the return loaders flag is False so the datasets can be concated in the dataloader
 #emnist_transforms = {'retina':True, 'colorize':True}
 mnist_transforms = {'retina':True, 'colorize':True, 'scale':False, 'build_retina':False}
 mnist_test_transforms = {'retina':True, 'colorize':True, 'scale':False}
@@ -56,7 +57,7 @@ mnist_dataset = Dataset('mnist', mnist_transforms)
 mnist_test_dataset = Dataset('mnist', mnist_test_transforms, train= False)
 
 #blocks
-block_dataset = torch.load('original_1.pth').cuda()
+#block_dataset = torch.load('original_1.pth').cuda()
 
 #emnist_skip = Dataset('emnist', skip_transforms)
 mnist_skip = Dataset('mnist', skip_transforms)
@@ -66,37 +67,15 @@ train_loader_noSkip = mnist_dataset.get_loader(bs)
 #sample_loader_noSkip = mnist_dataset.get_loader(25)
 test_loader_noSkip = mnist_test_dataset.get_loader(bs)
 #mnist_skip = torch.utils.data.DataLoader(dataset=ConcatDataset([block_dataset, mnist_skip]), batch_size=bs, shuffle=True,  drop_last= True)
-mnist_skip = mnist_skip.get_loader(bs)
+mnist_skip = mnist_skip.get_loader(bs)'''
 
 #add colorsquares dataset to training
-
-
 vae.to(device)
-if load is True:
-    loss_dict = torch.load(f'mvae_loss_data_recurr{d}.pt')
-else:
-    loss_dict = {'retinal_train':[], 'retinal_test':[], 'cropped_train':[], 'cropped_test':[]}
-seen_labels = {}
-for epoch in range(0, 60):
-    loss_lst, seen_labels = train(epoch, train_loader_noSkip, None, mnist_skip, test_loader_noSkip, None, True, seen_labels, block_dataset)
-    
-    # save error quantities
-    loss_dict['retinal_train'] += [loss_lst[0]]
-    loss_dict['retinal_test'] += [loss_lst[1]]
-    loss_dict['cropped_train'] += [loss_lst[2]]
-    loss_dict['cropped_test'] += [loss_lst[3]]
-    torch.save(loss_dict, f'mvae_loss_data_recurr{d}.pt')
 
-    torch.cuda.empty_cache()
-    if epoch in [1500,1600,1700]:
-        checkpoint =  {
-                 'state_dict': vae.state_dict(),
-                 'labels': seen_labels
-                      }
-        torch.save(checkpoint,f'{checkpoint_folder_path}/checkpoint_{str(epoch)}.pth')
-    else:
-        checkpoint =  {
-            'state_dict': vae.state_dict(),
-            'labels': seen_labels
-                }
-        torch.save(checkpoint,f'{checkpoint_folder_path}/checkpoint_most_recent.pth')
+dataloaders = []#[train_loader_noSkip, None, mnist_skip, test_loader_noSkip, None]
+
+train_mVAE(dataloaders, vae, 1000, folder_name, False)
+
+#train_labels
+
+#train_classifiers

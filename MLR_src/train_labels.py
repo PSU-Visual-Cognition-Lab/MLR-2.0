@@ -15,7 +15,7 @@ load_checkpoint(f'output_mnist_2drecurr{v}/checkpoint_most_recent.pth')
 bs = 50
 #load_checkpoint_shapelabels('output_label_net/checkpoint_shapelabels5.pth')
 
-transforms = { 'colorize':True}
+transforms = {'colorize':True}
 
 #emnist_dataset = Dataset('emnist', transforms)
 mnist_dataset = Dataset('mnist', transforms)

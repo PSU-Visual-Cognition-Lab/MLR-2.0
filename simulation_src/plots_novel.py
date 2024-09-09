@@ -15,7 +15,8 @@ colornames = ["red", "blue","green","purple","yellow","cyan","orange","brown","p
 
 # prerequisites
 import torch
-from dataset_builder import Dataset
+import sys
+import os
 import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
@@ -33,19 +34,19 @@ from sklearn.metrics import classification_report, confusion_matrix
 from PIL import ImageFilter
 #import imageio, time
 import math
-import sys
 import pandas as pd
 from torch.utils.data import DataLoader, Subset
 from sklearn.metrics.pairwise import cosine_similarity
 from scipy import stats
 import gc
-
-#from config import numcolors
-global numcolors, colorlabels
 from PIL import Image
-from mVAE import *
+
+#internal imports
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from MLR_src.dataset_builder import Dataset
+from MLR_src.mVAE import *
 from tokens_capacity import *
-import os
+
 
 from PIL import Image, ImageOps, ImageEnhance#, __version__ as PILLOW_VERSION
 convert_tensor = transforms.ToTensor()
