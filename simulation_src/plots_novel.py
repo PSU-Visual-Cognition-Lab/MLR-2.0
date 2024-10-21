@@ -15,37 +15,26 @@ colornames = ["red", "blue","green","purple","yellow","cyan","orange","brown","p
 
 # prerequisites
 import torch
-from dataset_builder import Dataset
+import sys
+import os
 import numpy as np
-import torch.nn as nn
 import torch.nn.functional as F
-import torch.optim as optim
 from PIL import Image, ImageDraw, ImageFont
 import matplotlib.pyplot as plt
-import matplotlib.image as mpimg
 from torchvision import datasets, transforms
-from torch.autograd import Variable
 from torchvision.utils import save_image
-from sklearn import svm
-from sklearn.metrics import classification_report, confusion_matrix
-#from IPython.display import Image, display
-#import cv2
-from PIL import ImageFilter
-#import imageio, time
 import math
-import sys
-import pandas as pd
-from torch.utils.data import DataLoader, Subset
-from sklearn.metrics.pairwise import cosine_similarity
 from scipy import stats
 import gc
-
-#from config import numcolors
-global numcolors, colorlabels
 from PIL import Image
-from mVAE import *
-from tokens_capacity import *
-import os
+
+#internal imports
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from MLR_src.dataset_builder import Dataset
+from MLR_src.mVAE import *
+from simulation_src.tokens_capacity import *
+from MLR_src.BP_functions import BPTokens_binding_all, BPTokens_retrieveByToken, BPTokens_storage, BPTokens_with_labels
+
 
 from PIL import Image, ImageOps, ImageEnhance#, __version__ as PILLOW_VERSION
 convert_tensor = transforms.ToTensor()
@@ -59,13 +48,13 @@ else:
 
 modelNumber= 1 #which model should be run, this can be 1 through 10
 
-folder_path = f'output{modelNumber}' # the output folder for the trained model versions
+#folder_path = f'output{modelNumber}' # the output folder for the trained model versions
 
-if not os.path.exists(folder_path):
-    os.mkdir(folder_path)
+#if not os.path.exists(folder_path):
+ #   os.mkdir(folder_path)
 
 #load_checkpoint('output/checkpoint_threeloss_singlegrad200_smfc.pth'.format(modelNumber=modelNumber))
-load_checkpoint('output_mnist_2drecurr0/checkpoint_most_recent.pth') # MLR2.0 trained on emnist letters, digits, and fashion mnist
+#load_checkpoint('output_mnist_2drecurr0/checkpoint_most_recent.pth') # MLR2.0 trained on emnist letters, digits, and fashion mnist
 
 #print('Loading the classifiers')
 '''clf_shapeS=load('classifier_output/ss.joblib')
@@ -74,7 +63,7 @@ clf_colorC=load('classifier_output/cc.joblib')
 clf_colorS=load('classifier_output/cs.joblib')
 '''
 #write to a text file
-outputFile = open('outputFile.txt'.format(modelNumber),'w')
+#outputFile = open('outputFile.txt'.format(modelNumber),'w')
 
 bs_testing = 1000     # number of images for testing. 20000 is the limit
 shape_coeff = 1       #cofficient of the shape map
@@ -110,7 +99,7 @@ Fig2btFlag =0     #novel objects stored and retrieved from memory, in tokens
 Fig2cFlag = 0      #familiar objects stored and retrieved from memory, using tokens 
 sampleflag = 0   #generate random objects from latents (plot working, not behaving as expected)
 Fig2nFlag = 0
-change_detect_flag = 1
+change_detect_flag = 0
 change_detect_2_flag = 0
 BP_std = 0
     
@@ -147,7 +136,7 @@ if (sampleflag):
     test_loader_smaller = torch.utils.data.DataLoader(dataset=test_dataset, batch_size=bs_testing, shuffle=True, num_workers=nw)
 
 
-if change_detect_flag == 1:
+def cd_r_acc_vs_setsize(vae):
     def compute_dprime(no_change_vector, change_vector):
         no_change_vector = np.array(no_change_vector)
         change_vector = np.array(change_vector)
@@ -357,7 +346,7 @@ if change_detect_flag == 1:
     plt.title(f'color change dprime vs set size, {batch_size*2} trials, BP: {bpPortion}')
     plt.savefig(f'change_detect_accuracy{task}.png')
 
-if change_detect_2_flag == 1:
+def cd_jiang_olson_chun_sim(vae):
     def compute_dprime(no_change_vector, change_vector):
         no_change_vector = np.array(no_change_vector)
         change_vector = np.array(change_vector)
@@ -679,7 +668,7 @@ if change_detect_2_flag == 1:
 #store items using both features, and separately color and shape (memory retrievals)
 
 
-if Fig2aFlag==1:
+def fig_2a(vae, folder_path):
     print('generating figure 2a, reconstructions from the binding pool')
 
     numimg= 6
@@ -695,7 +684,7 @@ if Fig2aFlag==1:
     imgs = images.clone().cuda()
 
     #run them all through the encoder
-    l1_act, l2_act, shape_act, color_act, location_act = activations(imgs)  #get activations from this small set of images
+    l1_act, l2_act, shape_act, color_act, location_act = vae.activations(imgs)  #get activations from this small set of images
     '''BPOut, Tokenbindings = BPTokens_storage(bpsize, bpPortion, l1_act[n,:].view(1,-1), l2_act[n,:].view(1,-1), shape_act[n,:].view(1,-1),color_act[n,:].view(1,-1),location_act[n,:].view(1,-1),0, 0,0,1,0,1,normalize_fact_novel)
         shape_out_all, color_out_all, location_out_all, BP_layer2_out, BP_layerI_out = BPTokens_retrieveByToken( bpsize, bpPortion, BPOut, Tokenbindings,l1_act.view(numimg,-1), l2_act.view(numimg,-1), shape_act,color_act,location_act,1,normalize_fact_novel)
     '''
@@ -734,88 +723,8 @@ if Fig2aFlag==1:
         range=(-1, 1),
     )
 
-
-if fig_new_loc == 1:
-    #recreate images of digits, but on the opposite side of the retina that they had originally been trained on 
-    #no working memory, just a reconstruction
-    bs = 100
-    retina_size = 100  #how wide is the retina
-
-    #make the data loader, but specifically we are creating stimuli on the opposite to how the model was trained
-    train_loader_noSkip, train_loader_skip, test_loader_noSkip, test_loader_skip = dataset_builder('mnist',bs,{},True,{'left':list(range(0,5)),'right':list(range(5,10))}) 
-    
-    #Code showing the data loader for how the model was trained, empty dict in 3rd param is for any color:
-    '''train_loader_noSkip, train_loader_skip, test_loader_noSkip, test_loader_skip = dataset_builder('mnist',bs,
-            {},True,{'right':list(range(0,5)),'left':list(range(5,10))}) '''    
-
-    dataiter_noSkip = iter(test_loader_noSkip)
-    data = dataiter_noSkip.next()
-    data = data[0] #.cuda()
-    
-    sample_data = data
-    sample_size = 15
-    sample_data[0] = sample_data[0][:sample_size]
-    sample_data[1] = sample_data[1][:sample_size]
-    sample_data[2] = sample_data[2][:sample_size]
-    sample = sample_data
-    with torch.no_grad():  #generate reconstructions for these stimuli from different pathways through the model
-        reconl, mu_color, log_var_color, mu_shape, log_var_shape,mu_location, log_var_location = vae(sample, 'location') #location
-        reconb, mu_color, log_var_color, mu_shape, log_var_shape, mu_location, log_var_location = vae(sample, 'retinal') #retina
-        recond, mu_color, log_var_color, mu_shape, log_var_shape, mu_location, log_var_location = vae(sample, 'cropped') #digit
-        reconc, mu_color, log_var_color, mu_shape, log_var_shape, mu_location, log_var_location = vae(sample, 'color') #color
-        recons, mu_color, log_var_color, mu_shape, log_var_shape, mu_location, log_var_location = vae(sample, 'shape') #shape
-            
-    empty_retina = torch.zeros((sample_size, 3, 28, 100))
-
-    #repackage the reconstructions for visualization
-    n_reconl = empty_retina.clone()
-    
-
-    for i in range(len(reconl)):
-        n_reconl[i][0, :, 0:100] = reconl[i]
-        n_reconl[i][1, :, 0:100] = reconl[i]
-        n_reconl[i][2, :, 0:100] = reconl[i]
-
-
-    n_recond = empty_retina.clone()
-    for i in range(len(recond)):
-        n_recond[i][0, :, 0:imgsize] = recond[i][0]
-        n_recond[i][1, :, 0:imgsize] = recond[i][1]
-        n_recond[i][2, :, 0:imgsize] = recond[i][2]
-
-    n_reconc = empty_retina.clone()
-    for i in range(len(reconc)):
-        n_reconc[i][0, :, 0:28] = reconc[i][0]
-        n_reconc[i][1, :, 0:28] = reconc[i][1]
-        n_reconc[i][2, :, 0:28] = reconc[i][2]
-
-    n_recons = empty_retina.clone()
-    for i in range(len(recons)):
-        n_recons[i][0, :, 0:28] = recons[i][0]
-        n_recons[i][1, :, 0:28] = recons[i][1]
-        n_recons[i][2, :, 0:28] = recons[i][2]
-    line1 = torch.ones((1,2)) * 0.5
-    line1 = line1.view(1,1,1,2)
-    line1 = line1.expand(sample_size, 3, imgsize, 2)
-    
-    n_reconc = torch.cat((n_reconc,line1),dim = 3).cuda()
-    n_recons = torch.cat((n_recons,line1),dim = 3).cuda()
-    n_reconl = torch.cat((n_reconl,line1),dim = 3).cuda()
-    n_recond = torch.cat((n_recond,line1),dim = 3).cuda()
-    shape_color_dim = retina_size + 2
-    sample = torch.cat((sample[0],line1),dim = 3).cuda()
-    
-    reconb = torch.cat((reconb,line1.cuda()),dim = 3).cuda()
-    utils.save_image(
-        torch.cat([sample.view(sample_size, 3, imgsize, retina_size+2), reconb.view(sample_size, 3, imgsize, retina_size+2), n_recond.view(sample_size, 3, imgsize, retina_size+2),
-                    n_reconl.view(sample_size, 3, imgsize, retina_size+2), n_reconc.view(sample_size, 3, imgsize, shape_color_dim), n_recons.view(sample_size, 3, imgsize, shape_color_dim)], 0),
-                'output{num}/figure_new_location.png'.format(num=modelNumber),
-                nrow=sample_size,
-                normalize=False,
-                range=(-1, 1),
-            )
-
-if fig_loc_compare == 1:
+def fig_loc_compare(vae, folder_path):
+    vae.eval()
     bs = 15
     mnist_transforms = {'retina':True, 'colorize':True, 'scale':False, 'location_targets':{'left':[0,1,2,3,4],'right':[5,6,7,8,9]}}
     mnist_test_transforms = {'retina':True, 'colorize':True, 'scale':False, 'location_targets':{'right':[0,1,2,3,4],'left':[5,6,7,8,9]}}
@@ -829,7 +738,7 @@ if fig_loc_compare == 1:
     #skipd = iter(train_loader_skip)
     #skip = skipd.next()
     #print(skip[0].size())
-    print(type(dataiter_noSkip_test))
+    #print(type(dataiter_noSkip_test))
     data_test = next(dataiter_noSkip_test)
     data_train = next(dataiter_noSkip_train)
 
@@ -841,7 +750,7 @@ if fig_loc_compare == 1:
 
     sample = data
     sample_size = 15
-    print(sample[0].size(),sample[1].size(),sample[2].size())
+    #print(sample[0].size(),sample[1].size(),sample[2].size())
     with torch.no_grad():
         reconl, mu_color, log_var_color, mu_shape, log_var_shape, mu_location, log_var_location,mu_scale,log_var_scale = vae(sample, 'location') #location
         reconb, mu_color, log_var_color, mu_shape, log_var_shape, mu_location, log_var_location,mu_scale,log_var_scale = vae(sample, 'retinal') #retina
@@ -850,7 +759,7 @@ if fig_loc_compare == 1:
     line2 = line1.view(1,1,1,2)
     line3 = line2.expand(sample_size, 3, retina_size, 2).cuda()
     line2 = line2.expand(sample_size*2, 3, retina_size, 2).cuda()
-    reconb = reconb['recon']
+    #reconb = reconb['recon']
 
     shape_color_dim = retina_size + 2
     shape_color_dim1 = imgsize + 2
@@ -862,10 +771,10 @@ if fig_loc_compare == 1:
     utils.save_image(
         torch.cat([sample_train.view(sample_size, 3, retina_size, shape_color_dim), reconb[sample_size:(2*sample_size)].view(sample_size, 3, retina_size, shape_color_dim), 
                    sample_test.view(sample_size, 3, retina_size, shape_color_dim), reconb[:(sample_size)].view(sample_size, 3, retina_size, shape_color_dim)], 0),
-        'output{num}/figure_new_location.png'.format(num=modelNumber),
+        f'{folder_path}figure_location_compare.png',
         nrow=sample_size, normalize=False)
     
-    image_pil = Image.open('output{num}/figure_new_location.png'.format(num=modelNumber))
+    image_pil = Image.open(f'{folder_path}figure_location_compare.png')
     trained_label = "Trained Data"
     untrained_label = "Untrained Data"
     # Add trained and untrained labels to the image using PIL's Draw module
@@ -882,11 +791,12 @@ if fig_loc_compare == 1:
     draw.text(untrained_label_position, untrained_label, fill=(255, 255, 255), font=font)
 
     # Save the modified image with labels
-    image_pil.save('output{num}/figure_new_location.png'.format(num=modelNumber))
+    image_pil.save(f'{folder_path}figure_location_compare.png')
 
     print("Images with labels saved successfully.")
+    return []
 
-if Fig2nFlag==1:
+def fig_2n(vae, folder_path):
     print('bengali reconstructions')
     all_imgs = []
     imgsize = 28
@@ -905,7 +815,7 @@ if Fig2nFlag==1:
     out_img = torch.cat([imgs[0: numimg].view(numimg, 3, 28, imgsize),output,recon_sample],dim=0)
     utils.save_image(out_img,f'output{modelNumber}/bengali_recon.png',numimg)
 
-if BP_std == 1:
+def BP_std(vae, folder_path):
     def compute_correlation(x, y):
         assert x.shape == y.shape, "Tensors must have the same shape"
         
@@ -992,7 +902,7 @@ if BP_std == 1:
     plt.savefig(f'BP_std_corr.png')
     plt.close()
 
-if Fig2bFlag==1:
+def fig_2b(vae, folder_path):
     #from dataset_builder import Colorize_specific
     all_imgs = []
     print('generating Figure 2b, Novel characters retrieved from memory of L1 and Bottleneck')
@@ -1019,7 +929,7 @@ if Fig2bFlag==1:
     blank = torch.zeros(1,3,28,28).cuda()
     blank[:,:,]
     #push the images through the encoder
-    l1_act, l2_act, shape_act, color_act, location_act = activations(imgs.view(-1,3,28,28), location)
+    l1_act, l2_act, shape_act, color_act, location_act = vae.activations(imgs.view(-1,3,28,28), location)
     '''for i in range(len(l1_act)):
         z = len(l1_act[i])//2
         l1_act[i,:z]  *= -1'''
@@ -1066,7 +976,7 @@ if Fig2bFlag==1:
     save_image(torch.cat([imgs[0: numimg].view(numimg, 3, 28, imgsize), imgmatrixL1skip, imgmatrixL1noskip, imgmatrixMap], 0),'output{num}/figure2b.png'.format(num=modelNumber),
             nrow=numimg,            normalize=False,)  
 
-if Fig2btFlag==1:
+def fig_2bt(vae, folder_path):
     all_imgs = []
     recon = list()
     print('generating Figure 2bt, Novel characters retrieved from memory of L1 and Bottleneck using Tokens')
@@ -1132,7 +1042,7 @@ if Fig2btFlag==1:
 
 
 
-if Fig2cFlag==1:
+def fig_2c(vae, folder_path):
     vae.eval()
     print('generating Figure 2c, Familiar characters retrieved from Bottleneck using Tokens')
     retina_size = 100
@@ -1161,7 +1071,7 @@ if Fig2cFlag==1:
     
     #push the images through the model
     reconb, mu_color, log_var_color, mu_shape, log_var_shape, mu_location, log_var_location,mu_scale,log_var_scale = vae(sample, 'cropped')
-    l1_act, l2_act, shape_act, color_act, location_act = activations(sample[1].view(-1,3,28,28).cuda())
+    l1_act, l2_act, shape_act, color_act, location_act = vae.activations(sample[1].view(-1,3,28,28).cuda())
     
     shape_act = vae.sampling(mu_shape, log_var_shape).cuda()
     color_act = vae.sampling(mu_color, log_var_color).cuda()
@@ -2499,7 +2409,7 @@ if noveltyDetectionFlag==1:
     outputFile.write(
             '\naccuracy of detecting the novel shapes : mean is {0:.4g} and SE is {1:.4g} '.format(mean_nov, nov_SE))
 
-outputFile.close()
+#outputFile.close()
 
 def plotbpvals(set1,set2,set3,set4,set5,label):
 

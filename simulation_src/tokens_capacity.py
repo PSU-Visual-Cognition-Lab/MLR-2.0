@@ -52,7 +52,7 @@ import random
 global colorlabels
 from PIL import Image
 
-from mVAE import *
+from MLR_src.mVAE import *
 
 
 from PIL import Image, ImageOps, ImageEnhance, __version__ as PILLOW_VERSION

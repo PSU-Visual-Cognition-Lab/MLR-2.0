@@ -1,4 +1,3 @@
-from mVAE import vae, VAEshapelabels, VAEcolorlabels, VAElocationlabels, image_activations
 import torch
 import numpy as np
 import torch.nn as nn
@@ -17,10 +16,54 @@ bs = 100
 s_classes = 36
 c_classes = 10
 
+# shape label network
+class VAEshapelabels(nn.Module):
+    def __init__(self, xlabel_dim, hlabel_dim,  zlabel_dim):
+        super(VAEshapelabels, self).__init__()
+
+        # encoder part
+        self.fc1label = nn.Linear(xlabel_dim, hlabel_dim)
+        self.fc21label= nn.Linear(hlabel_dim,  zlabel_dim) #mu shape
+        self.fc22label = nn.Linear(hlabel_dim, zlabel_dim) #log-var shape
+
+
+    def sampling_labels (self, mu, log_var, n=1):
+        std = torch.exp(0.5 * log_var)
+        eps = torch.randn_like(std) * n
+        return mu + eps * std
+
+    def forward(self, x_labels, n):
+        h = F.relu(self.fc1label(x_labels))
+        mu_shape_label = self.fc21label(h)
+        log_var_shape_label=self.fc22label(h)
+        z_shape_label = self.sampling_labels(mu_shape_label, log_var_shape_label, n)
+        return  z_shape_label
+
+# color label network
+class VAEcolorlabels(nn.Module):
+    def __init__(self, xlabel_dim, hlabel_dim, zlabel_dim):
+        super(VAEcolorlabels, self).__init__()
+
+        # encoder part
+        self.fc1label = nn.Linear(xlabel_dim, hlabel_dim)
+        self.fc21label = nn.Linear(hlabel_dim, zlabel_dim)  # mu color
+        self.fc22label = nn.Linear(hlabel_dim, zlabel_dim)  # log-var color
+
+    def sampling_labels(self, mu, log_var):
+        std = torch.exp(0.5 * log_var)
+        eps = torch.randn_like(std)
+        return mu + eps * std
+
+    def forward(self, x_labels):
+        h = F.relu(self.fc1label(x_labels))
+        mu_shape_label = self.fc21label(h)
+        log_var_shape_label = self.fc22label(h)
+        z_color_label = self.sampling_labels(mu_shape_label, log_var_shape_label)
+        return  z_color_label
+
 vae_shape_labels= VAEshapelabels(xlabel_dim=s_classes, hlabel_dim=20,  zlabel_dim=8)
 vae_color_labels= VAEcolorlabels(xlabel_dim=10, hlabel_dim=7,  zlabel_dim=8)
 if torch.cuda.is_available():
-    vae.cuda()
     vae_shape_labels.cuda()
     vae_color_labels.cuda()
     print('CUDA')
@@ -47,10 +90,6 @@ def load_checkpoint_colorlabels(filepath):
     vae_color_labels.eval()
     return vae_color_labels
 
-optimizer = optim.Adam(vae.parameters())
-
-optimizer_shapelabels= optim.Adam(vae_shape_labels.parameters())
-optimizer_colorlabels= optim.Adam(vae_color_labels.parameters())
 
 def loss_label(label_act,image_act):
 
@@ -59,7 +98,7 @@ def loss_label(label_act,image_act):
 
     return e
 
-def train_labels(epoch, train_loader):
+def train_labels(vae, epoch, train_loader, optimizer_shapelabels, optimizer_colorlabels):
     global colorlabels, numcolors    
 
     numcolors = 0
@@ -97,7 +136,7 @@ def train_labels(epoch, train_loader):
         z_shape_label = vae_shape_labels(input_oneHot,n)
         z_color_label = vae_color_labels(color_oneHot)
 
-        z_shape, z_color, z_location = image_activations(image)
+        z_shape, z_color, z_location = vae.activations(image)
 
         # train shape label net
         

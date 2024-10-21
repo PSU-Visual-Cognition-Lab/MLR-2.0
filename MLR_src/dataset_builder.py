@@ -6,7 +6,7 @@ from torchvision import datasets
 from torchvision import transforms as torch_transforms
 from torch.utils import data #.data import #DataLoader, Subset, Dataset
 import random
-from PIL import Image, ImageOps, ImageEnhance, __version__ as PILLOW_VERSION
+from PIL import Image, ImageOps, ImageEnhance, __version__ as PILLOW_VERSION, ImageDraw
 
 colornames = ["red", "green", "blue", "purple", "yellow", "cyan", "orange", "brown", "pink", "white"]
 colorrange = .08
@@ -121,13 +121,32 @@ class PadAndPosition:
         if self.scale != -1:
             return torch_transforms.ToTensor()(new_img), torch_transforms.ToTensor()(img), position, scale_dist #retinal, crop, position, scale
         else:
-            return torch_transforms.ToTensor()(new_img), torch_transforms.ToTensor()(img), position
+            return torch_transforms.ToTensor()(new_img), torch_transforms.ToTensor()(img), position  #retinal, crop, position
 
 class ToTensor:
     def __init__(self):
         self.x = None
     def __call__(self, img):
         return torch_transforms.ToTensor()(img)
+
+def generate_square_crop_image(image_size=(28, 28)):
+    """Generate a black image with a white square in the center"""
+    square_size = 8
+    
+    # Create a black background as a numpy array
+    image_array = np.zeros((image_size[0], image_size[1]), dtype=np.uint8)
+    
+    # Calculate center position for the square
+    x = int((image_size[0] - square_size) // 2) + random.randint(-3,3)
+    y = int((image_size[1] - square_size) // 2) + random.randint(-3,3)
+    
+    # Draw the white square (255 for white)
+    image_array[y:y+square_size, x:x+square_size] = 255
+    
+    # Convert to PIL Image
+    image = Image.fromarray(image_array, mode='L')
+    
+    return image
 
 class Dataset(data.Dataset):
     def __init__(self, dataset, transforms={}, train=True):
@@ -237,15 +256,17 @@ class Dataset(data.Dataset):
         base_dataset = datasets.EMNIST(root='./data', split='byclass', train=False, transform=torch_transforms.Compose([lambda img: torch_transforms.functional.rotate(img, -90),
             lambda img: torch_transforms.functional.hflip(img)]), download=True)
         indices_test = []
+        indices_train = []
         count = {target: 0 for target in list(range(10,36))}
         print('starting indices collection')
         for i in range(len(base_dataset)):
             img, target = base_dataset[i]
             if target not in self.lowercase and count[target] <= 6000:
                 indices_test += [i]
+                indices_train += [i]
                 count[target] += 1
         print(count)
-        #torch.save(indices_train, 'uppercase_ind_train.pt')
+        torch.save(indices_train, 'uppercase_ind_train.pt')
         torch.save(indices_test, 'uppercase_ind_test.pt')
         print('saved indices')
         indices_train = torch.load('uppercase_ind_train.pt')
@@ -264,8 +285,11 @@ class Dataset(data.Dataset):
         elif dataset == 'fashion_mnist':
             base_dataset = datasets.FashionMNIST('./fashionmnist_data/', train=train, transform = None, download=True)
 
-        elif dataset== 'cifar10':
+        elif dataset == 'cifar10':
             base_dataset = datasets.CIFAR10(root='./data', train=train, download=True, transform=None)
+        
+        elif dataset == 'square':
+            base_dataset = None
 
         elif os.path.exists(dataset):
             base_dataset = Image.open(rf'{dataset}')
@@ -276,21 +300,31 @@ class Dataset(data.Dataset):
         return base_dataset
 
     def __len__(self):
-        if type(self.dataset) != Image.Image:
+        if self.dataset is None:
+            return 10000
+
+        elif type(self.dataset) != Image.Image:
             return len(self.dataset)
+
         else:
-            return 1
+            return 10000
 
     def __getitem__(self, index):
-        if type(self.dataset) != Image.Image:
+        if self.dataset is None:
+            image = generate_square_crop_image()
+            target = -1
+
+        elif type(self.dataset) != Image.Image:
             image, target = self.dataset[index]
             if self.name == 'emnist' and self.train == True:
                 image, target = self.dataset[self.indices[random.randint(0,len(self.indices)-1)]]
             else:
                 target += self.target_dict[self.name][0]
+
         else:
             image = self.dataset
             target = 1
+
         col = None
         transform_list = []
         # append transforms according to transform attributes

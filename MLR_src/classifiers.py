@@ -4,7 +4,6 @@ import numpy as np
 from sklearn import svm
 from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
 from torchvision import utils
-from mVAE import vae
 from PIL import Image, ImageOps, ImageEnhance, __version__ as PILLOW_VERSION
 import matplotlib.pyplot as plt
 
@@ -17,7 +16,7 @@ clf_cs = svm.SVC(C=10, gamma='scale', kernel='rbf')  # classify color map agains
 vals = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z']
 
 #training the shape map on shape labels and color labels
-def classifier_shape_train(whichdecode_use, train_dataset):
+def classifier_shape_train(vae, whichdecode_use, train_dataset):
     vae.eval()
     with torch.no_grad():
         data, labels = next(iter(train_dataset))
@@ -36,7 +35,7 @@ def classifier_shape_train(whichdecode_use, train_dataset):
         clf_ss.fit(z_shape.cpu().numpy(), train_shapelabels)
 
 #testing the shape classifier (one image at a time)
-def classifier_shape_test(whichdecode_use, clf_ss, clf_sc, test_dataset, confusion_mat=0):
+def classifier_shape_test(vae, whichdecode_use, clf_ss, clf_sc, test_dataset, confusion_mat=0):
     vae.eval()
     with torch.no_grad():
         data, labels = next(iter(test_dataset))
@@ -68,7 +67,7 @@ def classifier_shape_test(whichdecode_use, clf_ss, clf_sc, test_dataset, confusi
     return pred_ss, pred_sc, SSreport, SCreport
 
 #training the color map on shape and color labels
-def classifier_color_train(whichdecode_use, train_dataset):
+def classifier_color_train(vae, whichdecode_use, train_dataset):
     vae.eval()
     with torch.no_grad():
         data, labels = next(iter(train_dataset))
@@ -85,7 +84,7 @@ def classifier_color_train(whichdecode_use, train_dataset):
         clf_cs.fit(z_color.cpu().numpy(), train_shapelabels)
 
 #testing the color classifier (one image at a time)
-def classifier_color_test(whichdecode_use, clf_cc, clf_cs, test_dataset, verbose=0):
+def classifier_color_test(vae, whichdecode_use, clf_cc, clf_cs, test_dataset, verbose=0):
     vae.eval()
     with torch.no_grad():
         data, labels = next(iter(test_dataset))

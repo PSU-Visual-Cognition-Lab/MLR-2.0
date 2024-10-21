@@ -2,7 +2,7 @@ import sys
 
 if len(sys.argv[1:]) != 0:
     d = int(sys.argv[1:][0])
-    load = False#bool(sys.argv[1:][1])
+    load = bool(sys.argv[1:][1])
 else:
     d=1
     load = False
@@ -10,14 +10,17 @@ else:
 # prerequisites
 import torch
 import os
-
-import matplotlib.pyplot as plt
-from mVAE import train, test, vae, optimizer, load_checkpoint
+from MLR_src.mVAE import load_checkpoint, vae_builder
 from torch.utils.data import DataLoader, ConcatDataset
-from dataset_builder import Dataset
+from MLR_src.dataset_builder import Dataset
+from MLR_src.train_mVAE import train_mVAE
+from MLR_src.train_labels import train_labelnet
+from MLR_src.train_classifiers import train_classifiers
+from torchvision import datasets, transforms, utils
 
+folder_name = 'test'
 #torch.set_default_dtype(torch.float64)
-checkpoint_folder_path = f'output_mnist_2drecurr{d}' # the output folder for the trained model versions
+checkpoint_folder_path = f'checkpoints/{folder_name}/' # the output folder for the trained model versions
 
 if not os.path.exists(checkpoint_folder_path):
     os.mkdir(checkpoint_folder_path)
@@ -36,27 +39,35 @@ if torch.cuda.is_available():
 else:
     device = 'cpu'
 
-# to resume training an existing model checkpoint, uncomment the following line with the checkpoints filename
-if load is True:
-    load_checkpoint(f'{checkpoint_folder_path}/checkpoint_most_recent.pth', d)
-    print('checkpoint loaded')
-
 bs=100
 
+# to resume training an existing model checkpoint, uncomment the following line with the checkpoints filename
+if load is True:
+    vae = load_checkpoint(f'{checkpoint_folder_path}/mVAE_checkpoint.pth', d)
+    print('checkpoint loaded')
+else:
+    vae, z_dim = vae_builder()
+
 # trainging datasets, the return loaders flag is False so the datasets can be concated in the dataloader
-#emnist_transforms = {'retina':True, 'colorize':True}
 mnist_transforms = {'retina':True, 'colorize':True, 'scale':False, 'build_retina':False}
+
 mnist_test_transforms = {'retina':True, 'colorize':True, 'scale':False}
 skip_transforms = {'skip':True, 'colorize':True}
 
-#emnist_dataset = Dataset('emnist', emnist_transforms)
+#emnist_dataset = Dataset('emnist', mnist_transforms)
 mnist_dataset = Dataset('mnist', mnist_transforms)
 
-#emnist_test_dataset = Dataset('emnist', emnist_transforms, train= False)
+#emnist_test_dataset = Dataset('emnist', mnist_test_transforms, train= False)
 mnist_test_dataset = Dataset('mnist', mnist_test_transforms, train= False)
 
 #blocks
-block_dataset = torch.load('original_1.pth').cuda()
+block_dataset = Dataset('square', {'colorize':True, 'retina':True, 'build_retina':False})
+block_loader = block_dataset.get_loader(bs)
+#blocks, labels = next(iter(block_loader))
+#utils.save_image( blocks,
+ #           'testblock.png',
+  #          nrow=1, normalize=False)
+
 
 #emnist_skip = Dataset('emnist', skip_transforms)
 mnist_skip = Dataset('mnist', skip_transforms)
@@ -69,34 +80,18 @@ test_loader_noSkip = mnist_test_dataset.get_loader(bs)
 mnist_skip = mnist_skip.get_loader(bs)
 
 #add colorsquares dataset to training
-
-
 vae.to(device)
-if load is True:
-    loss_dict = torch.load(f'mvae_loss_data_recurr{d}.pt')
-else:
-    loss_dict = {'retinal_train':[], 'retinal_test':[], 'cropped_train':[], 'cropped_test':[]}
-seen_labels = {}
-for epoch in range(0, 60):
-    loss_lst, seen_labels = train(epoch, train_loader_noSkip, None, mnist_skip, test_loader_noSkip, None, True, seen_labels, block_dataset)
-    
-    # save error quantities
-    loss_dict['retinal_train'] += [loss_lst[0]]
-    loss_dict['retinal_test'] += [loss_lst[1]]
-    loss_dict['cropped_train'] += [loss_lst[2]]
-    loss_dict['cropped_test'] += [loss_lst[3]]
-    torch.save(loss_dict, f'mvae_loss_data_recurr{d}.pt')
 
-    torch.cuda.empty_cache()
-    if epoch in [1500,1600,1700]:
-        checkpoint =  {
-                 'state_dict': vae.state_dict(),
-                 'labels': seen_labels
-                      }
-        torch.save(checkpoint,f'{checkpoint_folder_path}/checkpoint_{str(epoch)}.pth')
-    else:
-        checkpoint =  {
-            'state_dict': vae.state_dict(),
-            'labels': seen_labels
-                }
-        torch.save(checkpoint,f'{checkpoint_folder_path}/checkpoint_most_recent.pth')
+dataloaders = [train_loader_noSkip, None, mnist_skip, test_loader_noSkip, None, block_loader]
+
+#train mVAE
+print('Training: mVAE')
+train_mVAE(dataloaders, vae, 1000, folder_name)
+
+#train_labels
+print('Training: label networks')
+train_labelnet(dataloaders, vae, 15, folder_name)
+
+#train_classifiers
+print('Training: classifiers')
+train_classifiers(dataloaders, vae, folder_name)
