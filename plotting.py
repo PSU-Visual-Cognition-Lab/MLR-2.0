@@ -16,7 +16,7 @@ args = parser.parse_args()
 # example terminal command given a checkpoint named "square_train_1" and a desired output folder "test_all":
 # python plotting.py --c_folder square_train_1 --run_name test_all
 
-folder_name = args.c_folder
+folder_name = args.folder
 run_name = args.run_name
 
 checkpoint_folder_path = f'checkpoints/{folder_name}/' # the output folder for the trained model versions
@@ -47,14 +47,14 @@ if not os.path.exists('simulations/'):
 if not os.path.exists(simulation_folder_path):
     os.mkdir(simulation_folder_path)
 
-#individuated(vae, simulation_folder_path)  #generating and retrieving specific examples of objects
-#interference(vae, simulation_folder_path)
-#novel(vae, simulation_folder_path)
-#addressability(vae, clf_color, simulation_folder_path)
-#flexibility(vae, simulation_folder_path)
-#generative(vae, vae_shape_labels, s_classes, vae_color_labels, c_classes, simulation_folder_path)
+individuated(vae, simulation_folder_path)  #generating and retrieving specific examples of objects
+interference(vae, simulation_folder_path)
+novel(vae, simulation_folder_path)
+addressability(vae, clf_color, simulation_folder_path)
+flexibility(vae, simulation_folder_path)
+generative(vae, vae_shape_labels, s_classes, vae_color_labels, c_classes, simulation_folder_path)
 synthesis(vae, vae_shape_labels, s_classes, clf_objectS, simulation_folder_path)
-#compositional(vae, simulation_folder_path)
-#novel(vae, simulation_folder_path)
+compositional(vae, simulation_folder_path)
+novel(vae, simulation_folder_path)
 
-#interference(vae, simulation_folder_path)
+interference(vae, simulation_folder_path)
