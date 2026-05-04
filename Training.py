@@ -71,7 +71,7 @@ else:
     print('CUDA not available')
 
 bs=100   #batch size for training the main VAE
-SVM_bs = 20000  #batch size for training the svm classifiers
+SVM_bs = 1000  #batch size for training the svm classifiers
 obj_latent_flag = True   #this flag determines whether the VAE has an obj latent space
 
 
