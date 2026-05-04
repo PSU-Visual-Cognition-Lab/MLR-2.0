@@ -9,7 +9,7 @@ from joblib import load
 import seaborn as sns
 
 parser = argparse.ArgumentParser(description="Simulations using MLR-2.0")
-parser.add_argument("--c_folder", type=str, default='test', help="where to find the vae checkpoint/")
+parser.add_argument("--folder", type=str, default='test', help="where to find the vae checkpoint/")
 parser.add_argument("--run_name", type=str, default='test', help="where to store simulation outputs/")
 args = parser.parse_args()
 
