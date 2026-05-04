@@ -268,7 +268,7 @@ def fig_repeat_recon(vae: VAE_CNN, folder_path: str, load_data: bool = False):
     pkl_path = f'{folder_path}{log_function_name()}-figure_data.pkl'
     print(bpsize)
     vae.eval()
-    print('generating Figure repeated reconstructions, red B, red B, blue C using map and L1')
+    print('generating Figure repeated reconstructions, red A, red A, blue C using map and L1')
     retina_size = 100
     imgsize = 28
     bpPortion = int(token_overlap *bpsize) # number binding pool neurons used for each item
@@ -655,7 +655,7 @@ def fig_retinal_mod(vae: VAE_CNN, folder_path: str, load_data: bool = False):
 @torch.no_grad()
 def fig_visual_synthesis(vae: VAE_CNN, shape_label, s_classes, object_classifier, folder_path: str, load_data: bool = False):
     pkl_path = f'{folder_path}{log_function_name()}-figure_data.pkl'
-
+    #combine a D and a P together to get as sailboat
     vae.eval()
     bs = 2
     num1 = 3
@@ -683,9 +683,10 @@ def fig_visual_synthesis(vae: VAE_CNN, shape_label, s_classes, object_classifier
     activations = vae.activations(comb_img, True, None, 'object')
 
     pred_ss = object_classifier.predict(activations['shape'].cpu())
-    out_pred = pred_ss[0].item() # predicted character
+    out_pred = pred_ss[0]
     pred_prob = object_classifier.predict_proba(activations['shape'].cpu())
-    out_prob = pred_prob[0][out_pred]
+    class_idx = list(object_classifier.classes_).index(out_pred)
+    out_prob = pred_prob[0][class_idx]
 
     recon_shape = vae.decoder_object(activations['shape'], 0, 0)
     save_image(comb_img, f'{folder_path}D_P_sim.png')
@@ -694,7 +695,9 @@ def fig_visual_synthesis(vae: VAE_CNN, shape_label, s_classes, object_classifier
     save_image(img1, f'{folder_path}D.png')
     save_image(img2, f'{folder_path}P.png')
 
-    print(object_names[out_pred], out_pred, out_prob)
+    for cls, prob in zip(object_classifier.classes_, pred_prob[0]):
+        print(f'{object_names[cls]}: {prob:.4f}')
+    print(f'Predicted: {object_names[out_pred]} ({out_prob:.4f})')
 
 def build_gen_grid(joint_recons, shape_recons, color_recons, n):
     grid_rows = []

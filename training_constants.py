@@ -5,9 +5,9 @@ training_related_pairs = [('airplane', 'bird'), ('tree', 'axe')]
 testing_related_pairs = [('airplane', 'bird')]
 testing_unrelated_pairs = [('airplane', 'axe')]
 
-targetset = list(range(0, 7))
+targetset = list(range(0, 4))
 targetset.append(15)
-print('TA$RGETs')
+print('TARGET set for shapes only  (reduced to improve quality)')
 print(targetset)
 
 # dataset names must be in format <dataset name>-<component type>, unless there is only one component trained by that dataset
