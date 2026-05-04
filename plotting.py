@@ -48,13 +48,13 @@ if not os.path.exists(simulation_folder_path):
     os.mkdir(simulation_folder_path)
 
 #individuated(vae, simulation_folder_path)
-interference(vae, simulation_folder_path)
+#interference(vae, simulation_folder_path)
 #novel(vae, simulation_folder_path)
 #addressability(vae, clf_color, simulation_folder_path)
 #flexibility(vae, simulation_folder_path)
 '''generative(vae, vae_shape_labels, s_classes, vae_color_labels, c_classes, simulation_folder_path)
 synthesis(vae, vae_shape_labels, s_classes, clf_objectS, simulation_folder_path)
-compositional(vae, simulation_folder_path)
-novel(vae, simulation_folder_path)
+#compositional(vae, simulation_folder_path)
+#novel(vae, simulation_folder_path)
 
 interference(vae, simulation_folder_path)'''

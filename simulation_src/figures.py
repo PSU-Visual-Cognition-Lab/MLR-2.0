@@ -51,7 +51,7 @@ shapeLabel_coeff= 1   #coefficient of the shape label
 colorLabel_coeff = 1  #coefficient of the color label
 location_coeff = 0  #coefficient of the color label
 
-bpsize = 25000#00         #size of the binding pool
+bpsize = 10000#00         #size of the binding pool
 token_overlap =0.1
 bpPortion = int(token_overlap *bpsize) # number binding pool neurons used for each item
 
@@ -110,7 +110,7 @@ def fig_efficient_rep(vae: VAE_CNN, folder_path: str, load_data: bool = False):
         print('generating Figure efficient reconstruction plot')
         retina_size = 100
         imgsize = 28
-        bpsize = 2500         #size of the binding pool
+        bpsize = 10000         #size of the binding pool
         token_overlap = 0.15
         bpPortion = int(token_overlap *bpsize) # number binding pool neurons used for each item
         numimg = 7
@@ -266,43 +266,45 @@ def fig_efficient_rep(vae: VAE_CNN, folder_path: str, load_data: bool = False):
 @torch.no_grad()
 def fig_repeat_recon(vae: VAE_CNN, folder_path: str, load_data: bool = False):
     pkl_path = f'{folder_path}{log_function_name()}-figure_data.pkl'
-
+    print(bpsize)
     vae.eval()
-    print('generating Figure repeated reconstructions, green 5, red 5, red 3')
+    print('generating Figure repeated reconstructions, red B, red B, blue C using map and L1')
     retina_size = 100
     imgsize = 28
     bpPortion = int(token_overlap *bpsize) # number binding pool neurons used for each item
     numimg = 3  #how many objects will we use here?
     #torch.set_default_dtype(torch.float64)
     #make the data loader, but specifically we are creating stimuli on the opposite to how the model was trained
-    test_loader_noSkip= Dataset('mnist',{'colorize':False}, train=True).get_loader(numimg)
+    test_loader_noSkip= Dataset('emnist',{'colorize':False}, train=True).get_loader(numimg)
 
     dataiter_noSkip = iter(test_loader_noSkip)
     data, labels = next(dataiter_noSkip)
     data = data #.cuda()
 
-    # find 2 5's and then 1 3
+
+
+    # find 2 B's and then 1 C
     imgs = []
     c = 0
     while c < 2:
-        if labels[0][0].item() == 5:
+        if labels[0][0].item() == 0:
             imgs += [data[0]]
             c += 1
         data, labels = next(dataiter_noSkip)
     
     c = 0
     while c < 1:
-        if labels[0][0].item() == 3:
+        if labels[0][0].item() == 2:
             imgs += [data[0]]
             c += 1
         data, labels = next(dataiter_noSkip)
     
-    blue = Colorize_specific(0)
-    green = Colorize_specific(1)
+    red = Colorize_specific(0)
+    blue = Colorize_specific(1)
 
-    imgs[0] = convert_tensor(blue(convert_image(imgs[0])))
-    imgs[1] = convert_tensor(green(convert_image(imgs[1])))
-    imgs[2] = convert_tensor(green(convert_image(imgs[2])))
+    imgs[0] = convert_tensor(red(convert_image(imgs[0])))
+    imgs[1] = convert_tensor(blue(convert_image(imgs[1])))
+    imgs[2] = convert_tensor(blue(convert_image(imgs[2])))
     
     sample = torch.cat(imgs, 0).cuda()
     
@@ -347,12 +349,13 @@ def fig_repeat_recon(vae: VAE_CNN, folder_path: str, load_data: bool = False):
         for i in range(n,numimg):
             imgmatrixMap= torch.cat([imgmatrixMap,emptyshape*0],0)
             imgmatrixL1= torch.cat([imgmatrixL1,emptyshape*0],0)
-    
+    #each figure is the raw image, then a reconstruction from the BP then direct reconstruction, then memory
     save_image(imgmatrixL1, f'{folder_path}figure_repeat_L1.png',  nrow=numimg,        normalize=False) #range=(-1, 1))
     save_image(imgmatrixMap, f'{folder_path}figure_repeat_Map.png',  nrow=numimg,        normalize=False) #,range=(-1, 1))
 
 @torch.no_grad()
 def fig_non_repeat_recon(vae: VAE_CNN, folder_path: str, load_data: bool = False):
+    #this is the individuated simulation
     pkl_path = f'{folder_path}{log_function_name()}-figure_data.pkl'
 
     vae.eval()
@@ -363,13 +366,13 @@ def fig_non_repeat_recon(vae: VAE_CNN, folder_path: str, load_data: bool = False
     numimg = 3  #how many objects will we use here?
     #torch.set_default_dtype(torch.float64)
     #make the data loader, but specifically we are creating stimuli on the opposite to how the model was trained
-    test_loader_noSkip= Dataset('mnist',{'colorize':False}, train=True).get_loader(numimg)  
+    test_loader_noSkip= Dataset('emnist',{'colorize':False}, train=True).get_loader(numimg)  
 
     dataiter_noSkip = iter(test_loader_noSkip)
     data, labels = next(dataiter_noSkip)
     data = data #.cuda()
 
-    # find 2 5's and then 1 3
+    #grab 3 random items
     imgs = []
     c = 0
     while c < 2:
@@ -450,24 +453,24 @@ def fig_non_color_repeat_recon(vae: VAE_CNN, folder_path: str, load_data: bool =
     numimg = 3  #how many objects will we use here?
     #torch.set_default_dtype(torch.float64)
     #make the data loader, but specifically we are creating stimuli on the opposite to how the model was trained
-    test_loader_noSkip= Dataset('mnist',{'colorize':False}, train=True).get_loader(numimg)  
+    test_loader_noSkip= Dataset('emnist',{'colorize':False}, train=True).get_loader(numimg)  
 
     dataiter_noSkip = iter(test_loader_noSkip)
     data, labels = next(dataiter_noSkip)
     data = data #.cuda()
 
-    # find 2 5's and then 1 3
+    # find 2 a's and then 1 b
     imgs = []
     c = 0
     while c < 2:
-        if labels[0][0].item() == 5:
+        if labels[0][0].item() == 16:
             imgs += [data[0]]
             c += 1
         data, labels = next(dataiter_noSkip)
     
     c = 0
     while c < 1:
-        if labels[0][0].item() == 3:
+        if labels[0][0].item() == 17:
             imgs += [data[0]]
             c += 1
         data, labels = next(dataiter_noSkip)
@@ -540,7 +543,7 @@ def fig_novel_representations(vae: VAE_CNN, folder_path: str, load_data: bool = 
     imgsize = 28
     numimg = 6
     vae.eval()
-    bpsize = 25000#00         #size of the binding pool
+    bpsize = 2500#00         #size of the binding pool
     token_overlap =0.35
     bpPortion = int(token_overlap *bpsize) # number binding pool neurons used for each item
     #load in some examples of Bengali Characters

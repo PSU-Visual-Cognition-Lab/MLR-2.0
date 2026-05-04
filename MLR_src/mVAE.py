@@ -905,7 +905,7 @@ def train(vae, optimizer, epoch, dataloaders, return_loss = False, seen_labels =
     print(f'====> Epoch: {epoch} Losses: {train_loss_dict}')
     
     if return_loss is True:
-        test_data, test_labels = next(dataloaders['mnist-map'])
+        test_data, test_labels = next(dataloaders['emnist-map'])
 
         test_loss_dict = test_loss(vae, test_data, ['retinal', 'cropped', 'skip_cropped', 'shape', 'color'])
         

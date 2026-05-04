@@ -49,6 +49,8 @@ for component in args.components:
     if component not in training_components:
         print(f"Skipping unknown component: {component}")
         continue
+    print(f"Using component: {component}")
+
     for dataset_name in training_components[component][0]:
         if dataset_name not in dataloaders:
             base_name = dataset_name.split('-')[0]
@@ -114,7 +116,7 @@ def collect_latents(vae, dataloaders, component, n_samples, use_mu=True):
 
 
 # label name maps for readability
-emnist_label_names = {i: chr(55 + i) for i in range(10, 36)}  # 10=A, 11=B, ... 35=Z
+emnist_label_names = {i: chr(58 + i) for i in range(0, 26)}  # 10=A, 11=B, ... 35=Z
 color_label_names = {0: 'red', 1: 'green', 2: 'blue', 3: 'purple', 4: 'yellow',
                      5: 'cyan', 6: 'orange', 7: 'brown', 8: 'pink', 9: 'white'}
 
