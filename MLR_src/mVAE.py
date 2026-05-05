@@ -261,14 +261,15 @@ class VAE_CNN(nn.Module):
 
     def activations(self, x, retinal=False, hskip = None, which_encode=None): # returns shape, color, scale, location, and skip(l1) latent activations
                 
-        if type(x) == list or type(x) == tuple:
+        if hskip is not None:
+            pass
+        elif type(x) == list or type(x) == tuple:
             if retinal:
-                    x = x[0].cuda()
+                x = x[0].cuda()
             else:
-                    x = x[1].cuda()
+                x = x[1].cuda()
         else:
             x = x.cuda()
-            
         if hskip is not None:   #skip connection activation  (not sure what latent this is )
             mu_shape, log_var_shape, mu_color, log_var_color, hskip = self.encoder(x, hskip)
             mu_object, log_var_object = self.encoder_object(x, hskip)
