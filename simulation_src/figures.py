@@ -100,6 +100,7 @@ def compute_correlation(x, y):
 
 
 # figures:
+
 @torch.no_grad()
 def fig_efficient_rep(vae: VAE_CNN, folder_path: str, load_data: bool = False):
     pkl_path = f'{folder_path}{log_function_name()}-figure_data.pkl'
@@ -107,85 +108,108 @@ def fig_efficient_rep(vae: VAE_CNN, folder_path: str, load_data: bool = False):
 
     if load_data is False:
         print('generating Figure efficient reconstruction plot')
-        bpsize = 2500
+        retina_size = 100
+        imgsize = 28
+        bpsize = 10000         #size of the binding pool
         token_overlap = 0.15
-        bpPortion = int(token_overlap * bpsize)
+        bpPortion = int(token_overlap *bpsize) # number binding pool neurons used for each item
         numimg = 7
         n_2 = 1
         n_4 = 4
+        #make the data loader
+        test_loader_mnist = Dataset('mnist',{'colorize':True}, train=True).get_loader(numimg)
+        #test_loader_emnist = Dataset('emnist',{'colorize':True}, train=True).get_loader(numimg)
+        test_loader_emnist = Dataset('emnist',{'retina':False, 'colorize':True, 'rotate':False, 'scale':True, 'target_set':[0, 1, 2, 3, 4, 15]}, train=True).get_loader(numimg)
+        #load in some examples of Bengali Characters
+        '''for i in range (1,7):
+            color = Colorize_specific(random.randint(0,9))
+            img = Image.open(f'data/current_bengali/{i}_thick.png')
+            img_new = convert_tensor(color(img))
+            
+            all_imgs.append(img_new)
+        all_imgs = torch.stack(all_imgs)
+        imgs = all_imgs.view(-1, 3, imgsize, imgsize).cuda()   ''' 
 
-        # familiar = emnist A-D (trained on), novel = mnist 1-4 (not trained on)
-        test_loader_familiar = cycle(Dataset('emnist',{'colorize':True, 'target_set':[0,1,2,3]}, train=True).get_loader(numimg))
-        test_loader_novel = cycle(Dataset('mnist',{'colorize':True, 'target_set':[1,2,3,4]}, train=True).get_loader(numimg))
-
-        dataiter_familiar = iter(test_loader_familiar)
-        dataiter_novel = iter(test_loader_novel)
+        dataiter_mnist = iter(test_loader_mnist)
+        dataiter_emnist = iter(test_loader_emnist)
         sc_2 = []
         l1_2 = []
         sc_4 = []
         l1_4 = []
 
-        for count in range(0, 100):
-            data_familiar, labels = next(dataiter_familiar)
-            data_novel, labels = next(dataiter_novel)
+        for count in range(0,100):
+            data_mnist, labels = next(dataiter_mnist)
+            data_emnist, labels = next(dataiter_emnist)
+            #data_emnist = imgs # Bengali chars not emnist
+            
+            mnist_sample = data_mnist[:n_4].cuda()
+            emnist_sample = data_emnist[:n_4].cuda()
+            
+            #push the images through the model
+            mnist_act = vae.activations(mnist_sample.view(-1,3,28,28), False)
+            emnist_act = vae.activations(emnist_sample.view(-1,3,28,28), False)
+            
+            emnist_shape_act = emnist_act['shape']
+            emnist_color_act = emnist_act['color']
 
-            familiar_sample = data_familiar[:n_4].cuda()
-            novel_sample = data_novel[:n_4].cuda()
+            mnist_l1_act = mnist_act['skip']
 
-            familiar_act = vae.activations(familiar_sample.view(-1, 3, 28, 28), False)
-            novel_act = vae.activations(novel_sample.view(-1, 3, 28, 28), False)
+            BP_activations_sc_2 = {'shape': [emnist_shape_act[:n_2].view(n_2,-1), 1], 'color': [emnist_color_act[:n_2].view(n_2,-1), 1]} # 2 familiar in shape/color
+            BP_activations_l1_2 = {'l1': [mnist_l1_act[:n_2].view(n_2,-1), 1]} # 2 novel in L1
 
-            familiar_shape_act = familiar_act['shape']
-            familiar_color_act = familiar_act['color']
-            novel_l1_act = novel_act['skip']
+            BP_activations_sc_4 = {'shape': [emnist_shape_act.view(n_4,-1), 1], 'color': [emnist_color_act.view(n_4,-1), 1]} # 4 familiar in shape/color
+            BP_activations_l1_4 = {'l1': [mnist_l1_act.view(n_4,-1), 1]} # 4 novel in L1
 
-            BP_activations_sc_2 = {'shape': [familiar_shape_act[:n_2].view(n_2, -1), 1], 'color': [familiar_color_act[:n_2].view(n_2, -1), 1]}
-            BP_activations_l1_2 = {'l1': [novel_l1_act[:n_2].view(n_2, -1), 1]}
-            BP_activations_sc_4 = {'shape': [familiar_shape_act.view(n_4, -1), 1], 'color': [familiar_color_act.view(n_4, -1), 1]}
-            BP_activations_l1_4 = {'l1': [novel_l1_act.view(n_4, -1), 1]}
-
-            BPOut, Tokenbindings = BPTokens_storage(bpsize, bpPortion, BP_activations_sc_2, n_2, normalize_fact_novel)
-            BP_activations_out = BPTokens_retrieveByToken(bpsize, bpPortion, BPOut, Tokenbindings, BP_activations_sc_2, n_2, normalize_fact_novel)
+            # store and retrieve 2 familiar s/c maps
+            BPOut, Tokenbindings = BPTokens_storage(bpsize, bpPortion, BP_activations_sc_2, n_2,normalize_fact_novel)
+            BP_activations_out = BPTokens_retrieveByToken( bpsize, bpPortion, BPOut, Tokenbindings, BP_activations_sc_2, n_2,normalize_fact_novel)
             shape_out_2, color_out_2 = BP_activations_out['shape'], BP_activations_out['color']
 
-            BPOut, Tokenbindings = BPTokens_storage(bpsize, bpPortion, BP_activations_l1_2, n_2, normalize_fact_novel)
-            BP_activations_out = BPTokens_retrieveByToken(bpsize, bpPortion, BPOut, Tokenbindings, BP_activations_l1_2, n_2, normalize_fact_novel)
+            # store and retrieve 2 novel l1 act
+            BPOut, Tokenbindings = BPTokens_storage(bpsize, bpPortion, BP_activations_l1_2, n_2,normalize_fact_novel)
+            BP_activations_out = BPTokens_retrieveByToken( bpsize, bpPortion, BPOut, Tokenbindings, BP_activations_l1_2, n_2,normalize_fact_novel)
             l1_out_2 = BP_activations_out['l1']
 
-            BPOut, Tokenbindings = BPTokens_storage(bpsize, bpPortion, BP_activations_sc_4, n_4, normalize_fact_novel)
-            BP_activations_out = BPTokens_retrieveByToken(bpsize, bpPortion, BPOut, Tokenbindings, BP_activations_sc_4, n_4, normalize_fact_novel)
+            # store and retrieve 4 familiar s/c maps
+            BPOut, Tokenbindings = BPTokens_storage(bpsize, bpPortion, BP_activations_sc_4, n_4,normalize_fact_novel)
+            BP_activations_out = BPTokens_retrieveByToken( bpsize, bpPortion, BPOut, Tokenbindings, BP_activations_sc_4, n_4,normalize_fact_novel)
             shape_out_4, color_out_4 = BP_activations_out['shape'], BP_activations_out['color']
 
-            BPOut, Tokenbindings = BPTokens_storage(bpsize, bpPortion, BP_activations_l1_4, n_4, normalize_fact_novel)
-            BP_activations_out = BPTokens_retrieveByToken(bpsize, bpPortion, BPOut, Tokenbindings, BP_activations_l1_4, n_4, normalize_fact_novel)
+            # store and retrieve 4 novel l1 act
+            BPOut, Tokenbindings = BPTokens_storage(bpsize, bpPortion, BP_activations_l1_4, n_4,normalize_fact_novel)
+            BP_activations_out = BPTokens_retrieveByToken( bpsize, bpPortion, BPOut, Tokenbindings, BP_activations_l1_4, n_4,normalize_fact_novel)
             l1_out_4 = BP_activations_out['l1']
-
-            recon_sc_2 = vae.decoder_cropped(shape_out_2, color_out_2, 0, 0).cuda()
+            
+            recon_sc_2 = vae.decoder_cropped(shape_out_2, color_out_2,0,0).cuda() #rgb_to_gray(vae.decoder_shape(shape_out_2, 0))#
             recon_l1_2 = vae.decoder_skip_cropped(0, 0, 0, l1_out_2).cuda()
-            recon_sc_4 = vae.decoder_cropped(shape_out_4, color_out_4, 0, 0).cuda()
-            recon_l1_4 = vae.decoder_skip_cropped(0, 0, 0, l1_out_4).cuda()
 
-            corr_sc_2 = compute_correlation(familiar_sample[:n_2], recon_sc_2).item()
-            corr_l1_2 = compute_correlation(novel_sample[:n_2], recon_l1_2).item()
-            corr_sc_4 = compute_correlation(familiar_sample, recon_sc_4).item()
-            corr_l1_4 = compute_correlation(novel_sample, recon_l1_4).item()
+            recon_sc_4 = vae.decoder_cropped(shape_out_4, color_out_4,0,0).cuda() #rgb_to_gray(vae.decoder_shape(shape_out_4, 0))#
+            recon_l1_4 = vae.decoder_skip_cropped(0, 0, 0, l1_out_4).cuda()
+            
+            corr_sc_2 = compute_correlation(emnist_sample[:n_2], recon_sc_2).item()
+            corr_l1_2 = compute_correlation(mnist_sample[:n_2], recon_l1_2).item()
+
+            corr_sc_4 = compute_correlation(emnist_sample, recon_sc_4).item()
+            corr_l1_4 = compute_correlation(mnist_sample, recon_l1_4).item()
 
             sc_2 += [corr_sc_2]
             l1_2 += [corr_l1_2]
+
             sc_4 += [corr_sc_4]
             l1_4 += [corr_l1_4]
 
-        corr_sc_2 = sum(sc_2) / len(sc_2)
-        corr_l1_2 = sum(l1_2) / len(l1_2)
-        corr_sc_4 = sum(sc_4) / len(sc_4)
-        corr_l1_4 = sum(l1_4) / len(l1_4)
+        corr_sc_2 = sum(sc_2)/len(sc_2)
+        corr_l1_2 = sum(l1_2)/len(l1_2)
+
+        corr_sc_4 = sum(sc_4)/len(sc_4)
+        corr_l1_4 = sum(l1_4)/len(l1_4)
 
         print(corr_l1_2, corr_l1_4)
         print(corr_sc_2, corr_sc_4)
 
-        e = torch.zeros((1, 3, 28, 28)).cuda()
-        fig_data = [familiar_sample, torch.cat([recon_sc_2, e, e, e], 0), recon_sc_4, novel_sample,
-                    torch.cat([recon_l1_2, e, e, e], 0), recon_l1_4]
+        e = torch.zeros((1,3,28,28)).cuda()
+        fig_data = [mnist_sample, torch.cat([recon_sc_2, e, e, e], 0), recon_sc_4, emnist_sample,
+                   torch.cat([recon_l1_2, e, e, e], 0), recon_l1_4,]
 
         data_to_pickle = {
             "fig_data": fig_data,
@@ -196,11 +220,14 @@ def fig_efficient_rep(vae: VAE_CNN, folder_path: str, load_data: bool = False):
             "corr_sc_2": corr_sc_2,
             "corr_sc_4": corr_sc_4,
         }
+
         joblib.dump(data_to_pickle, pkl_path)
 
     else:
         if not os.path.exists(pkl_path):
             raise Exception(f"No data exists for plot: {folder_path}{log_function_name()}")
+        
+        # load plotting data
         loaded_data = joblib.load(pkl_path)
         n_2 = loaded_data["n_2"]
         n_4 = loaded_data["n_4"]
@@ -211,45 +238,54 @@ def fig_efficient_rep(vae: VAE_CNN, folder_path: str, load_data: bool = False):
 
     save_image(
         torch.cat(fig_data, 0),
-        f'{folder_path}efficient_recon_sample.png', pad_value=0.6,
+        f'{folder_path}efficient_recon_sample_ss2_ss4.png', pad_value=0.6,
         nrow=n_4, normalize=False)
 
     plt.figure()
-    sns.lineplot(x=[n_2, n_4], y=[corr_l1_2, corr_l1_4], label='novel images (L1)')
-    sns.lineplot(x=[n_2, n_4], y=[corr_sc_2, corr_sc_4], label='familiar images (feature maps)')
+
+    sns.lineplot(
+        x=[n_2, n_4],
+        y=[corr_l1_2, corr_l1_4],
+        label='novel images (L1)'
+    )
+
+    sns.lineplot(
+        x=[n_2, n_4],
+        y=[corr_sc_2, corr_sc_4],
+        label='familiar images (feature maps)'
+    )
+
     plt.xlabel('set size')
     plt.ylabel('r')
     plt.title('Set Size vs. Reconstruction Correlation')
     plt.legend()
+
     plt.savefig(f'{folder_path}efficient_recon.png')
     plt.close()
 
 @torch.no_grad()
 def fig_repeat_recon(vae: VAE_CNN, folder_path: str, load_data: bool = False):
     pkl_path = f'{folder_path}{log_function_name()}-figure_data.pkl'
-    print(bpsize)
+
     vae.eval()
-    print('generating Figure repeated reconstructions, red A, red A, blue C using map and L1')
+    print('generating Figure repeated reconstructions, green 5, red 5, red 3')
     retina_size = 100
     imgsize = 28
     bpPortion = int(token_overlap *bpsize) # number binding pool neurons used for each item
     numimg = 3  #how many objects will we use here?
     #torch.set_default_dtype(torch.float64)
     #make the data loader, but specifically we are creating stimuli on the opposite to how the model was trained
-
-    test_loader_noSkip= Dataset('emnist',{'colorize':False, 'target_set':[0, 1, 2, 3]}, train=True).get_loader(numimg)
+    test_loader_noSkip= Dataset('emnist',{'colorize':False}, train=True).get_loader(numimg)
 
     dataiter_noSkip = iter(test_loader_noSkip)
     data, labels = next(dataiter_noSkip)
     data = data #.cuda()
 
-
-
-    # find 2 B's and then 1 C
+    # find 2 5's and then 1 3
     imgs = []
     c = 0
     while c < 2:
-        if labels[0][0].item() == 0:
+        if labels[0][0].item() == 1:
             imgs += [data[0]]
             c += 1
         data, labels = next(dataiter_noSkip)
@@ -262,12 +298,14 @@ def fig_repeat_recon(vae: VAE_CNN, folder_path: str, load_data: bool = False):
         data, labels = next(dataiter_noSkip)
     
     red = Colorize_specific(0)
-    blue = Colorize_specific(1)
+    
+    green = Colorize_specific(1)
+    blue = Colorize_specific(2)
 
     imgs[0] = convert_tensor(red(convert_image(imgs[0])))
-    imgs[1] = convert_tensor(blue(convert_image(imgs[1])))
+    imgs[1] = convert_tensor(green(convert_image(imgs[1])))
     imgs[2] = convert_tensor(blue(convert_image(imgs[2])))
-    
+
     sample = torch.cat(imgs, 0).cuda()
     
     #push the images through the model
@@ -276,6 +314,15 @@ def fig_repeat_recon(vae: VAE_CNN, folder_path: str, load_data: bool = False):
     shape_act = activations['shape']
     color_act = activations['color']
     reconb = vae.decoder_cropped(shape_act, color_act, 0)
+
+    mu_shape, _, mu_color, _, hskip = vae.encoder(sample.view(-1,3,28,28))
+
+    #    sample = torch.cat(imgs, 0).cuda()
+    #sample = torch.stack(imgs, 0).cuda()
+    #with torch.no_grad():
+    #    reconb, _, _, _, _, _, _ = vae(sample, 'cropped', ['shape', 'color'])
+    
+
     reconskip = vae.decoder_skip_cropped(0, 0, 0, l1_act.view(numimg,-1))
     #reconskip, mu_color, log_var_color, mu_shape, log_var_shape = vae.forward_layers(l1_act.view(numimg,-1), l2_act, 3, 'skip_cropped') 
 
@@ -286,75 +333,87 @@ def fig_repeat_recon(vae: VAE_CNN, folder_path: str, load_data: bool = False):
 
     BP_activations_sc = {'shape': [shape_act.view(numimg,-1), 1], 'color': [color_act.view(numimg,-1), 1]}
     BP_activations_l1 = {'l1': [l1_act.view(numimg,-1), 1]}
-    # store 1 -> numimg items
-    for n in range(numimg,numimg+1):
-        #Store and retrieve the map versions
-        BPOut, Tokenbindings = BPTokens_storage(bpsize, bpPortion, BP_activations_sc, n,normalize_fact_novel)
-        BP_activations_out = BPTokens_retrieveByToken( bpsize, bpPortion, BPOut, Tokenbindings, BP_activations_sc, n,normalize_fact_novel)
+    
+    emptyshape = torch.zeros((1,3,28,28)).cuda()
+    
+    # Row 1: originals (already in imgmatrixMap and imgmatrixL1)
+    # Row 2: direct recon (already in imgmatrixMap and imgmatrixL1)
+    
+    # Rows 3+: BP recon at set sizes 1 through numimg
+    for n in range(1, numimg+1):
+        # Store and retrieve shape+color maps
+        BPOut, Tokenbindings = BPTokens_storage(bpsize, bpPortion, BP_activations_sc, n, normalize_fact_novel)
+        BP_activations_out = BPTokens_retrieveByToken(bpsize, bpPortion, BPOut, Tokenbindings, BP_activations_sc, n, normalize_fact_novel)
         shape_out_all, color_out_all = BP_activations_out['shape'], BP_activations_out['color']
-        z = torch.randn(numimg-n,8).cuda()
-        retrievals = vae.decoder_cropped(shape_out_all, color_out_all,0,0).cuda()
-        #retrievals = retrievals[:n]
-        #Store and retrieve the L1 version
-        BPOut, Tokenbindings = BPTokens_storage(bpsize, bpPortion, BP_activations_l1, n,normalize_fact_novel)
-        BP_activations_out = BPTokens_retrieveByToken( bpsize, bpPortion, BPOut, Tokenbindings, BP_activations_l1, n,normalize_fact_novel)
-        #l1_out_all=l1_act[:n] #remove
-        l1_out_all = BP_activations_out['l1']
-        recon_layer1_skip = vae.decoder_skip_cropped(0, 0, 0, l1_out_all.view(n,-1))
-
-        #imgmatrixMap= torch.cat([imgmatrixMap] + retrievals,0)
+        retrievals = vae.decoder_cropped(shape_out_all, color_out_all, 0, 0).cuda()
         
-        imgmatrixMap= torch.cat([imgmatrixMap, retrievals],0)
-        imgmatrixL1= torch.cat([imgmatrixL1,recon_layer1_skip],0)
+        # Store and retrieve L1
+        BPOut, Tokenbindings = BPTokens_storage(bpsize, bpPortion, BP_activations_l1, n, normalize_fact_novel)
+        BP_activations_out = BPTokens_retrieveByToken(bpsize, bpPortion, BPOut, Tokenbindings, BP_activations_l1, n, normalize_fact_novel)
+        l1_out_all = BP_activations_out['l1']
+        recon_layer1_skip = vae.decoder_skip_cropped(0, 0, 0, l1_out_all.view(n, -1))
+        
+        # Append retrievals, pad with empty images for items not stored
+        imgmatrixMap = torch.cat([imgmatrixMap, retrievals], 0)
+        imgmatrixL1 = torch.cat([imgmatrixL1, recon_layer1_skip], 0)
+        
+        for i in range(n, numimg):
+            imgmatrixMap = torch.cat([imgmatrixMap, emptyshape], 0)
+            imgmatrixL1 = torch.cat([imgmatrixL1, emptyshape], 0)
+    
+    save_image(imgmatrixL1, f'{folder_path}figure_repeat_L1.png', nrow=numimg, normalize=False, pad_value=0.6)
+    save_image(imgmatrixMap, f'{folder_path}figure_repeat_Map.png', nrow=numimg, normalize=False, pad_value=0.6)
 
-        #now pad with empty images
-        for i in range(n,numimg):
-            imgmatrixMap= torch.cat([imgmatrixMap,emptyshape*0],0)
-            imgmatrixL1= torch.cat([imgmatrixL1,emptyshape*0],0)
-    #each figure is the raw image, then a reconstruction from the BP then direct reconstruction, then memory
-    save_image(imgmatrixL1, f'{folder_path}figure_repeat_L1.png',  nrow=numimg,        normalize=False) #range=(-1, 1))
-    save_image(imgmatrixMap, f'{folder_path}figure_repeat_Map.png',  nrow=numimg,        normalize=False) #,range=(-1, 1))
 
 @torch.no_grad()
 def fig_non_repeat_recon(vae: VAE_CNN, folder_path: str, load_data: bool = False):
-    #this is the individuated simulation
     pkl_path = f'{folder_path}{log_function_name()}-figure_data.pkl'
 
     vae.eval()
-    print('generating Figure repeated reconstructions, green any, red any, red any')
+    print('generating Figure repeated reconstructions, green 5, red 5, red 3')
     retina_size = 100
     imgsize = 28
     bpPortion = int(token_overlap *bpsize) # number binding pool neurons used for each item
     numimg = 3  #how many objects will we use here?
     #torch.set_default_dtype(torch.float64)
     #make the data loader, but specifically we are creating stimuli on the opposite to how the model was trained
-    #test_loader_noSkip= Dataset('emnist',{'colorize':False}, train=True).get_loader(numimg)  
-    test_loader_noSkip= Dataset('emnist',{'colorize':False, 'target_set':[0, 1, 2, 3]}, train=True).get_loader(numimg)
+    test_loader_noSkip= Dataset('emnist',{'colorize':False}, train=True).get_loader(numimg)
+
     dataiter_noSkip = iter(test_loader_noSkip)
     data, labels = next(dataiter_noSkip)
     data = data #.cuda()
 
-    #grab 3 random items
+    # find 2 5's and then 1 3
     imgs = []
     c = 0
-    while c < 2:
-        imgs += [data[0]]
-        c += 1
+    while c < 1:
+        if labels[0][0].item() == 0:
+            imgs += [data[0]]
+            c += 1
+        data, labels = next(dataiter_noSkip)
+    c = 0
+    while c < 1:
+        if labels[0][0].item() == 1:
+            imgs += [data[0]]
+            c += 1
         data, labels = next(dataiter_noSkip)
     
     c = 0
     while c < 1:
-        imgs += [data[0]]
-        c += 1
+        if labels[0][0].item() == 2:
+            imgs += [data[0]]
+            c += 1
         data, labels = next(dataiter_noSkip)
-    
-    blue = Colorize_specific(0)
-    green = Colorize_specific(1)
 
-    imgs[0] = convert_tensor(blue(convert_image(imgs[0])))
-    imgs[1] = convert_tensor(green(convert_image(imgs[1])))
-    imgs[2] = convert_tensor(green(convert_image(imgs[2])))
+    red = Colorize_specific(0)
     
+    green = Colorize_specific(1)
+    blue = Colorize_specific(2)
+
+    imgs[0] = convert_tensor(red(convert_image(imgs[0])))
+    imgs[1] = convert_tensor(green(convert_image(imgs[1])))
+    imgs[2] = convert_tensor(blue(convert_image(imgs[2])))
+
     sample = torch.cat(imgs, 0).cuda()
     
     #push the images through the model
@@ -363,6 +422,15 @@ def fig_non_repeat_recon(vae: VAE_CNN, folder_path: str, load_data: bool = False
     shape_act = activations['shape']
     color_act = activations['color']
     reconb = vae.decoder_cropped(shape_act, color_act, 0)
+
+    mu_shape, _, mu_color, _, hskip = vae.encoder(sample.view(-1,3,28,28))
+
+    #    sample = torch.cat(imgs, 0).cuda()
+    #sample = torch.stack(imgs, 0).cuda()
+    #with torch.no_grad():
+    #    reconb, _, _, _, _, _, _ = vae(sample, 'cropped', ['shape', 'color'])
+    
+
     reconskip = vae.decoder_skip_cropped(0, 0, 0, l1_act.view(numimg,-1))
     #reconskip, mu_color, log_var_color, mu_shape, log_var_shape = vae.forward_layers(l1_act.view(numimg,-1), l2_act, 3, 'skip_cropped') 
 
@@ -373,35 +441,36 @@ def fig_non_repeat_recon(vae: VAE_CNN, folder_path: str, load_data: bool = False
 
     BP_activations_sc = {'shape': [shape_act.view(numimg,-1), 1], 'color': [color_act.view(numimg,-1), 1]}
     BP_activations_l1 = {'l1': [l1_act.view(numimg,-1), 1]}
-    # store 1 -> numimg items
-    for n in range(numimg,numimg+1):
-        #Store and retrieve the map versions
-        BPOut, Tokenbindings = BPTokens_storage(bpsize, bpPortion, BP_activations_sc, n,normalize_fact_novel)
-        BP_activations_out = BPTokens_retrieveByToken( bpsize, bpPortion, BPOut, Tokenbindings, BP_activations_sc, n,normalize_fact_novel)
-        shape_out_all, color_out_all = BP_activations_out['shape'], BP_activations_out['color']
-        z = torch.randn(numimg-n,8).cuda()
-        retrievals = vae.decoder_cropped(shape_out_all, color_out_all,0,0).cuda()
-        #retrievals = retrievals[:n]
-        #Store and retrieve the L1 version
-        BPOut, Tokenbindings = BPTokens_storage(bpsize, bpPortion, BP_activations_l1, n,normalize_fact_novel)
-        BP_activations_out = BPTokens_retrieveByToken( bpsize, bpPortion, BPOut, Tokenbindings, BP_activations_l1, n,normalize_fact_novel)
-        #l1_out_all=l1_act[:n] #remove
-        l1_out_all = BP_activations_out['l1']
-        recon_layer1_skip = vae.decoder_skip_cropped(0, 0, 0, l1_out_all.view(n,-1))
-
-        #imgmatrixMap= torch.cat([imgmatrixMap] + retrievals,0)
-        
-        imgmatrixMap= torch.cat([imgmatrixMap, retrievals],0)
-        imgmatrixL1= torch.cat([imgmatrixL1,recon_layer1_skip],0)
-
-        #now pad with empty images
-        for i in range(n,numimg):
-            imgmatrixMap= torch.cat([imgmatrixMap,emptyshape*0],0)
-            imgmatrixL1= torch.cat([imgmatrixL1,emptyshape*0],0)
     
-    save_image(imgmatrixL1, f'{folder_path}figure_non_repeat_L1.png',  nrow=numimg,        normalize=False) #range=(-1, 1))
-    save_image(imgmatrixMap, f'{folder_path}figure_non_repeat_Map.png',  nrow=numimg,        normalize=False) #,range=(-1, 1))
-
+    emptyshape = torch.zeros((1,3,28,28)).cuda()
+    
+    # Row 1: originals (already in imgmatrixMap and imgmatrixL1)
+    # Row 2: direct recon (already in imgmatrixMap and imgmatrixL1)
+    
+    # Rows 3+: BP recon at set sizes 1 through numimg
+    for n in range(1, numimg+1):
+        # Store and retrieve shape+color maps
+        BPOut, Tokenbindings = BPTokens_storage(bpsize, bpPortion, BP_activations_sc, n, normalize_fact_novel)
+        BP_activations_out = BPTokens_retrieveByToken(bpsize, bpPortion, BPOut, Tokenbindings, BP_activations_sc, n, normalize_fact_novel)
+        shape_out_all, color_out_all = BP_activations_out['shape'], BP_activations_out['color']
+        retrievals = vae.decoder_cropped(shape_out_all, color_out_all, 0, 0).cuda()
+        
+        # Store and retrieve L1
+        BPOut, Tokenbindings = BPTokens_storage(bpsize, bpPortion, BP_activations_l1, n, normalize_fact_novel)
+        BP_activations_out = BPTokens_retrieveByToken(bpsize, bpPortion, BPOut, Tokenbindings, BP_activations_l1, n, normalize_fact_novel)
+        l1_out_all = BP_activations_out['l1']
+        recon_layer1_skip = vae.decoder_skip_cropped(0, 0, 0, l1_out_all.view(n, -1))
+        
+        # Append retrievals, pad with empty images for items not stored
+        imgmatrixMap = torch.cat([imgmatrixMap, retrievals], 0)
+        imgmatrixL1 = torch.cat([imgmatrixL1, recon_layer1_skip], 0)
+        
+        for i in range(n, numimg):
+            imgmatrixMap = torch.cat([imgmatrixMap, emptyshape], 0)
+            imgmatrixL1 = torch.cat([imgmatrixL1, emptyshape], 0)
+    
+    save_image(imgmatrixL1, f'{folder_path}figure_non_repeat_L1.png', nrow=numimg, normalize=False, pad_value=0.6)
+    save_image(imgmatrixMap, f'{folder_path}figure_non_repeat_Map.png', nrow=numimg, normalize=False, pad_value=0.6)
 
 @torch.no_grad()
 def fig_non_color_repeat_recon(vae: VAE_CNN, folder_path: str, load_data: bool = False):
@@ -415,26 +484,24 @@ def fig_non_color_repeat_recon(vae: VAE_CNN, folder_path: str, load_data: bool =
     numimg = 3  #how many objects will we use here?
     #torch.set_default_dtype(torch.float64)
     #make the data loader, but specifically we are creating stimuli on the opposite to how the model was trained
-    test_loader_noSkip= Dataset('emnist',{'colorize':False, 'target_set':[0, 1, 2, 3]}, train=True).get_loader(numimg)
-    #test_loader_noSkip= Dataset('emnist',{'colorize':False}, train=True).get_loader(numimg)  
-    #test_loader_noSkip = cycle(Dataset('emnist',{'colorize':False, 'target_set':[0, 1, 2, 3]}, train=True).get_loader(numimg))
+    test_loader_noSkip= Dataset('emnist',{'colorize':False}, train=True).get_loader(numimg)  
 
     dataiter_noSkip = iter(test_loader_noSkip)
     data, labels = next(dataiter_noSkip)
     data = data #.cuda()
 
-    # find 2 a's and then 1 b
+    # find 2 5's and then 1 3
     imgs = []
     c = 0
     while c < 2:
-        if labels[0][0].item() == 1:
+        if labels[0][0].item() == 5:
             imgs += [data[0]]
             c += 1
         data, labels = next(dataiter_noSkip)
     
     c = 0
     while c < 1:
-        if labels[0][0].item() == 2:
+        if labels[0][0].item() == 3:
             imgs += [data[0]]
             c += 1
         data, labels = next(dataiter_noSkip)
@@ -507,7 +574,7 @@ def fig_novel_representations(vae: VAE_CNN, folder_path: str, load_data: bool = 
     imgsize = 28
     numimg = 6
     vae.eval()
-    bpsize = 10000#00         #size of the binding pool
+    bpsize = 25000#00         #size of the binding pool
     token_overlap =0.35
     bpPortion = int(token_overlap *bpsize) # number binding pool neurons used for each item
     #load in some examples of Bengali Characters
@@ -580,14 +647,12 @@ def fig_novel_representations(vae: VAE_CNN, folder_path: str, load_data: bool = 
 
 @torch.no_grad()
 def fig_retinal_mod(vae: VAE_CNN, folder_path: str, load_data: bool = False):
-    #the compositional figure
     pkl_path = f'{folder_path}{log_function_name()}-figure_data.pkl'
 
     vae.eval()
     bs = 10
-    emnist_transforms = {'retina':True, 'colorize':True, 'scale':True}
-    #    emnist_loader= Dataset('emnist', emnist_transforms).get_loader(bs)
-    emnist_loader = Dataset('emnist', {'retina':True, 'colorize':True, 'scale':True, 'target_set':[0, 1, 2, 3,15]}, train=True).get_loader(bs)
+    mnist_transforms = {'retina':True, 'colorize':True, 'scale':True}
+    emnist_loader= Dataset('emnist', mnist_transforms).get_loader(bs)
     
     dataiter_emnist = iter(emnist_loader)
     data, labels = next(dataiter_emnist)
@@ -621,7 +686,7 @@ def fig_retinal_mod(vae: VAE_CNN, folder_path: str, load_data: bool = False):
 @torch.no_grad()
 def fig_visual_synthesis(vae: VAE_CNN, shape_label, s_classes, object_classifier, folder_path: str, load_data: bool = False):
     pkl_path = f'{folder_path}{log_function_name()}-figure_data.pkl'
-    #combine a D and a P together to get as sailboat
+
     vae.eval()
     bs = 2
     num1 = 3
@@ -629,7 +694,6 @@ def fig_visual_synthesis(vae: VAE_CNN, shape_label, s_classes, object_classifier
     device = next(vae.parameters()).device
     shape_label.to(device)
     num_labels = F.one_hot(torch.tensor([num1, num2]).to(device), num_classes=s_classes).float().to(device) # shape
-    print(num_labels.size())
     z_shape = shape_label(num_labels, 1)
 
     recon_crop = vae.decoder_shape(z_shape)
@@ -754,18 +818,22 @@ def fig_generative_noise(vae: VAE_CNN, shape_label, s_classes, color_label, c_cl
     save_image(recon_grid, f'{folder_path}sample.png', pad_value=0.6)
 
 def binding_trial(trial_name: str, dataset, vae: VAE_CNN, color_classifier, numimg, folder_path: str):
-    bpsize = 10000
+    
     token_overlap = 0.3
     bpPortion = int(token_overlap *bpsize)
 
     test_loader = cycle(dataset.get_loader(numimg))
     dataiter = iter(test_loader)
-    total_trials = 1000
+    total_trials = 100
     out_predictions = 0
     token_predictions = 0
     
+    green = Colorize_specific(1)
+    red = Colorize_specific(0)
+
     for _ in range(total_trials):
         imgs, targets = next(dataiter)
+
         imgs = imgs.cuda()
 
         # greyscale
@@ -822,6 +890,7 @@ def binding_trial(trial_name: str, dataset, vae: VAE_CNN, color_classifier, numi
         f.write(f"Correct token: {token_predictions/total_trials} of {total_trials} trials\n")
         f.write(f"Correct color: {out_predictions/total_trials} of {total_trials} trials\n")
 
+    
     shape_out_BP, color_out_BP = BP_act_out['shape'], BP_act_out['color']
     shape_out_BP_cued, color_out_BP_cued = BP_act_out_cued['shape'], BP_act_out_cued['color']
     BP_cropped_recon = vae.decoder_cropped(shape_out_BP, color_out_BP)
@@ -849,17 +918,18 @@ def fig_binding_addressability(vae: VAE_CNN, color_classifier, folder_path: str,
     if load_data is False:
         print("addressability figure")
         # store 2 digits, generate activations of greyscaled rep of 1 of the digits, retrieve from BP using that as a cue
+        
         numimg = 2
 
-        # number binding pool neurons used for each item
         dataset = Dataset('emnist',{'retina':False, 'colorize':True, 'rotate':False, 'scale':True}, train=False)
-        dataset_2 = Dataset('emnist',{'retina':False, 'colorize':True, 'rotate':False, 'scale':True, 'target_set':[2]}, train=True)
+        dataset_2 = Dataset('emnist',{'retina':False, 'colorize':True, 'rotate':False, 'scale':True, 'target_set':[10]}, train=False)
+        # these functions  actually do the work
         fig_data_list_r = binding_trial('emnist_rand', dataset, vae, color_classifier, numimg, folder_path)
         fig_data_list_2 = binding_trial('emnist_2', dataset_2, vae, color_classifier, numimg, folder_path)
     
         data_to_pickle = {
             "fig_data_list_r": fig_data_list_r,
-            "fig_data_list_c": fig_data_list_2
+            "fig_data_list_2": fig_data_list_2
         }
 
         joblib.dump(data_to_pickle, pkl_path)
@@ -876,7 +946,7 @@ def fig_binding_addressability(vae: VAE_CNN, color_classifier, folder_path: str,
     save_image(torch.cat(fig_data_list_r, 0), f'{folder_path}mnist_rand-addressability.png',
                 nrow=numimg, normalize=False, pad_value=0.6)
 
-    save_image(torch.cat(fig_data_list_2, 0), f'{folder_path}mnist_c-addressability.png',
+    save_image(torch.cat(fig_data_list_2, 0), f'{folder_path}mnist_2-addressability.png',
             nrow=numimg, normalize=False, pad_value=0.6)
 
 def sample_points(n, m, k=5, min_dist=5):
@@ -1090,14 +1160,17 @@ def fig_encoding_flexibility(vae: VAE_CNN, folder_path: str, load_data: bool = F
     
     vae.eval()
     print("encoding flexibility figure")
+
+
     numimg = 2
 
     bpsize = 25000#00         #size of the binding pool
     token_overlap =0.35
     bpPortion = int(token_overlap *bpsize) # number binding pool neurons used for each item
-
-    #dataset = Dataset('emnist',{'retina':True, 'colorize':True, 'rotate':False, 'scale':True}, train=False)
-    dataset = Dataset('emnist',{'retina':True, 'colorize':True, 'rotate':False, 'scale':True, 'target_set':[0, 1, 2, 3]}, train=True)
+    targetset = list(range(0, 4))
+    targetset.append(15)
+    #dataset = Dataset('emnist',{'retina':True, 'colorize':True, 'rotate':False, 'scale':True, 'target_set':targetset}, train=False)
+    dataset = Dataset('emnist',{'retina':True, 'colorize':True, 'rotate':False, 'scale':True, 'target_set':[0, 1, 2, 3, 4, 15]}, train=True)
     test_loader = dataset.get_loader(numimg)
     dataiter = iter(test_loader)
     imgs = next(dataiter)[0][0].cuda()
@@ -1108,23 +1181,31 @@ def fig_encoding_flexibility(vae: VAE_CNN, folder_path: str, load_data: bool = F
     color_act = activations['color']
     location_act = activations['location']
     scale_act = activations['scale']
-    
+    theta_orig = torch.cat([scale_act, location_act], 1)
     color_degraded = []
     shape_degraded = []
-    
+
+    crop, theta = vae.stn_encode(imgs.view(-1,3,64,64))
+
     # degrade shape encoding weight: 1 -> 0.2
     for n in range (1,10,2):
         BP_activations_sc = {'shape': [shape_act.view(numimg,-1), 1/n], 'color': [color_act.view(numimg,-1), 1], 
                              'location': [location_act.view(numimg,-1), 1], 'scale': [scale_act.view(numimg,-1), 1]}
         
+        
         #now store/retrieve from L1
         BPOut, Tokenbindings = BPTokens_storage(bpsize, bpPortion, BP_activations_sc, numimg,normalize_fact_novel)
         BP_act_out = BPTokens_retrieveByToken( bpsize, bpPortion, BPOut, Tokenbindings, BP_activations_sc, numimg,normalize_fact_novel)
-        
+
+
+        # then through BP
+        #bp_crop_recon = vae.decoder_cropped(BP_act_out['shape'], BP_act_out['color'])
+
         shape_out_BP, color_out_BP = BP_act_out['shape'], BP_act_out['color']
         location_out_BP, scale_out_BP = BP_act_out['location'], BP_act_out['scale']
 
         theta = torch.cat([scale_out_BP, location_out_BP], 1)
+    
         BP_retinal_recon = vae.decoder_retinal(shape_out_BP, color_out_BP, theta)
         shape_degraded += [BP_retinal_recon]
     
