@@ -20,7 +20,7 @@ mnist-skip
 
 def train_classifiers(dataloaders, vae, checkpoint_folder):
 
-    print('training emnist data on color map using color labels')   #this should be high
+    '''    print('training emnist data on color map using color labels')   #this should be high
     clf_ecc = classifier_train(vae, 'color', dataloaders['emnist-map'], 'color')
     dump(clf_ecc, f'checkpoints/{checkpoint_folder}/ecc.joblib')
     pred_ecc, ecc_report = classifier_test(vae, 'color', clf_ecc, dataloaders['emnist-map'],'emnist','color', 1)
@@ -34,16 +34,16 @@ def train_classifiers(dataloaders, vae, checkpoint_folder):
     clf_mss = classifier_train(vae, 'shape', dataloaders['mnist-map'], 'shape')
     dump(clf_mss, f'checkpoints/{checkpoint_folder}/mss.joblib')
     pred_mss, mss_report = classifier_test(vae, 'shape', clf_mss, dataloaders['mnist-map'],'mnist','shape', 1)
+    '''
+    print('training object data on OBJECT map using object labels')  #this should be high if object latent is working
+    clf_ooo = classifier_train(vae, 'object', dataloaders['quickdraw-map'],'object')
+    dump(clf_ooo, f'checkpoints/{checkpoint_folder}/ooo.joblib')
+    pred_ooo, ooo_report = classifier_test(vae, 'object', clf_ooo, dataloaders['quickdraw-map'],'quickdraw','object', 1)
 
     print('training object data on color map using color labels')   #this should be high
     clf_occ = classifier_train(vae, 'color', dataloaders['quickdraw-map'], 'color')
     dump(clf_occ, f'checkpoints/{checkpoint_folder}/occ.joblib')
     pred_occ, occ_report = classifier_test(vae, 'color', clf_occ, dataloaders['quickdraw-map'],'quickdraw','color', 1)
-
-    print('training object data on OBJECT map using object labels')  #this should be high if object latent is working
-    clf_ooo = classifier_train(vae, 'object', dataloaders['quickdraw-map'],'object')
-    dump(clf_ooo, f'checkpoints/{checkpoint_folder}/ooo.joblib')
-    pred_ooo, ooo_report = classifier_test(vae, 'object', clf_ooo, dataloaders['quickdraw-map'],'quickdraw','object', 1)
 
     print('training object data on color map using object labels')   #this should be low but above chance
     clf_oco = classifier_train(vae, 'color', dataloaders['quickdraw-map'],'object')

@@ -80,5 +80,15 @@ def holistic(vae, folder_path, load_data=False):
     if not os.path.exists(folder_path):
         os.mkdir(folder_path)
 
-    #figures.fig_retinal_mod(vae, folder_path)
-    pass
+    figures.fig_retinal_mod(vae, folder_path)
+    #pass
+
+@torch.no_grad()
+def poster(vae, folder_path, load_data=False):
+    folder_path = folder_path + "poster/"
+    if not os.path.exists(folder_path):
+        os.mkdir(folder_path)
+
+    figures.fig_simultaneous_vs_sequential(vae, folder_path, load_data)
+    #figures.fig_efficient_rep(vae, folder_path) #WORKING
+

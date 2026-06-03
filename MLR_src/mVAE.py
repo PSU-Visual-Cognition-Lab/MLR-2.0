@@ -197,6 +197,9 @@ class VAE_CNN(nn.Module):
     def stn_encode(self, x):  # start with a full retina (e.g. 64x64) and extract the cropped object, with scale and location
         B = x.shape[0]
         # x is [B, 3, 64, 64]
+        if x.shape[2] != 64 or x.shape[3] != 64:
+            x = F.interpolate(x, size=(64, 64), mode='bilinear', align_corners=False)
+        
         z=self.localization(x)
         theta = self.regressor(z.view(-1, int(retina_size / 4) * int(retina_size / 4)*16))  # [B, 2, 3],  the scale and location of the item
         theta = theta.view(-1, 3).to(x.device)   
@@ -884,14 +887,14 @@ def train(vae, optimizer, epoch, dataloaders, return_loss = False, seen_labels =
         loader.set_description(f'epoch {epoch}; mse: {loss.item():.5f}')
         seen_labels = update_seen_labels(labels,seen_labels)
 
-        test_data, labels = next(dataloaders['emnist-map'])
+        test_data, labels = next(dataloaders['square-map'])
         #progress_out(vae, test_data[1], checkpoint_folder,'emnist'+str(epoch))    #this is used to test progress_out without waiting for a whole epoch
 
         if count % int(0.9*max_iter) == 0 and epoch % 5 == 1:
             #test_data, j = next(test_iter)
-            test_data, labels = next(dataloaders['emnist-map'])
+            test_data, labels = next(dataloaders['square-map'])
             progress_out(vae, test_data[1], checkpoint_folder,'emnist'+str(epoch))
-            test_data, labels = next(dataloaders['quickdraw-map'])
+            test_data, labels = next(dataloaders['square-map'])
             progress_out(vae, test_data[1], checkpoint_folder,'quickdraw'+str(epoch))
            
 
@@ -905,7 +908,7 @@ def train(vae, optimizer, epoch, dataloaders, return_loss = False, seen_labels =
     print(f'====> Epoch: {epoch} Losses: {train_loss_dict}')
     
     if return_loss is True:
-        test_data, test_labels = next(dataloaders['mnist-map'])
+        test_data, test_labels = next(dataloaders['square-map'])
 
         test_loss_dict = test_loss(vae, test_data, ['retinal', 'cropped', 'skip_cropped', 'shape', 'color'])
         

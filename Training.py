@@ -71,7 +71,7 @@ else:
     print('CUDA not available')
 
 bs=100   #batch size for training the main VAE
-SVM_bs = 20000  #batch size for training the svm classifiers
+SVM_bs = 1000  #batch size for training the svm classifiers
 obj_latent_flag = True   #this flag determines whether the VAE has an obj latent space
 
 
@@ -118,7 +118,7 @@ vae.to(device)
 print(f'Training: {args.train_list}')
 epoch_count = args.end_ep
 
-data, labels = next(iter(dataloaders['emnist-map']))
+'''data, labels = next(iter(dataloaders['emnist-map']))
 image = data[1].cuda()
 
 with torch.no_grad():
@@ -126,7 +126,7 @@ with torch.no_grad():
 
 save_image(
     torch.cat([image[:25], recon[:25]], 0),
-    'quick_test_recon.png', nrow=25)
+    'quick_test_recon.png', nrow=25)'''
 
 
 
