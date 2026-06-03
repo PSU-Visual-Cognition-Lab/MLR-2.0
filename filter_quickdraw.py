@@ -30,21 +30,27 @@ def preprocess_quickdraw(base_dataset):
         joblib.dump(dataset_dict, 'data/preprocessed_quickdraw.pkl')
         joblib.dump(index_dict, 'data/preprocessed_quickdraw_indices.pkl')
         print('data preprocessing done')
+        return dataset_dict, index_dict
     
     else:
         print('data loading')
         dataset_dict = joblib.load('data/preprocessed_quickdraw.pkl')
         index_dict = joblib.load('data/preprocessed_quickdraw_indices.pkl')
+    
     return dataset_dict, index_dict
 
 @torch.no_grad()
 def filter_quickdraw(model, base_dataset, n_clusters=10, d=1):
     print('preprocessing_quickdraw')
+    # run if switching dataset or loading a different VAE version:
     #data_dict, index_dict = preprocess_quickdraw(base_dataset)
+    # run if preprocessed data for the same dataset and VAE version already exists:
     index_dict = joblib.load('data/preprocessed_quickdraw_indices.pkl')
     #kmeans = KMeans(n_clusters=n_clusters, n_init=10, random_state=0)
     results = {}
-    index_list = [0,2,5,7,8,9]
+    # which classes to keep for the filtered set:
+    index_list = [0,2,7,8,9]
+
     for i in index_list: #index_dict.keys():
         print('i:', i)
 
@@ -85,7 +91,7 @@ def filter_quickdraw(model, base_dataset, n_clusters=10, d=1):
         print('max_cluster:', max_cluster)
 
         probs = gmm.predict_proba(object_act)[:, max_cluster]
-        selected_indices = np.argsort(probs)[::-1][:200]
+        selected_indices = np.argsort(probs)[::-1][:400]
         
         #print(selected_indices)
         result_indices = [index_dict[i][idx] for idx in selected_indices]
@@ -125,7 +131,7 @@ def save_filtered_images(base_dataset, filtered_indices):
 base_dataset = np.load(f'{DATASET_ROOT}quickdraw_npy/full_numpy_bitmap_all_objs.npy')
 print(base_dataset.shape)
 folder_name = "filtered_quickdraw"
-checkpoint_folder_path = f'checkpoints/{folder_name}/'
+checkpoint_folder_path = '/home/bpw10/mlrdev/MLR-2.0_clean2/checkpoints/VSSReady' #f'checkpoints/{folder_name}/'
 vae = load_checkpoint(f'{checkpoint_folder_path}/mVAE_checkpoint.pth', d=1, draw=True)
 vae.eval()
 

@@ -98,8 +98,344 @@ def compute_correlation(x, y):
     
     return correlation
 
+def zero_outside_radius(tensor, center_x, center_y, radius=6):
+    result = tensor.clone()
+    center_x = (28*center_x)/500
+    center_y = (28*center_y)/500
+    
+    # Iterate over all positions in the 28x28 grid
+    for i in range(28):
+        for j in range(28):
+            # Calculate the squared distance from the current position to the center
+            distance_squared = (i - center_y)**2 + (j - center_x)**2
+            
+            # If the distance is greater than the radius, set all channel values to zero
+            if distance_squared > radius**2:
+                result[:, i, j] = 0
+    
+    return result
+
+def build_single(input_tensor):
+    # input_tensor: [x, batch_size, channels, height, width]
+    output_tensor = input_tensor.sum(dim=1)  # sum across frames
+    output_tensor = torch.clamp(output_tensor, min=0.0, max=1.0)
+    return output_tensor
 
 # figures:
+
+def simultaneous_encode(vae: VAE_CNN, data, folder_path, x):
+    bpsize = 6500         #size of the binding pool
+    token_overlap = 0.2
+    bpPortion = int(token_overlap *bpsize)
+    n = len(data)
+    mse_list = []
+    recon_list = []
+    for i in range(n):
+        activations = vae.activations(data[i].view(-1,3,28,28), False)
+
+        BP_activations = {'l1': [activations['skip'].view(1,-1), 1]}
+
+        # store and retrieve
+        BPOut, Tokenbindings = BPTokens_storage(bpsize, bpPortion, BP_activations, 1,normalize_fact_novel)
+        BP_activations_out = BPTokens_retrieveByToken(bpsize, bpPortion, BPOut, Tokenbindings, BP_activations, 1,normalize_fact_novel)
+        l1_out = BP_activations_out['l1']
+
+        recon = vae.decoder_skip_cropped(0, 0, 0, l1_out.view(1,-1))
+        recon_list += [recon]
+    
+    save_image(torch.cat([data[:8], torch.cat(recon_list[:8])]), f'{folder_path}{x}_simultaneous.png', nrow=8, pad_value=0.6, normalize=False)
+    return 0
+
+def sequential_encode(vae: VAE_CNN, original, frames, folder_path, probe_x, input_x=6):
+    bpsize = 6500         #size of the binding pool
+    token_overlap = 0.2
+    bpPortion = int(token_overlap *bpsize)
+    # data: N,x,3,28,28  N: batch size, x: frames per item
+    n = frames.size(0)
+    input_x = probe_x
+    mse_list = []
+    recon_list = []
+    probe_list = []
+    for i in range(n):
+        activations = vae.activations(frames[i][:probe_x].view(-1,3,28,28), True)
+
+        BP_activations = {'shape': [activations['shape'].view(probe_x,-1), 1], 'color': [activations['color'].view(probe_x,-1), 1], } # 2 familiar in shape/color
+
+        # store and retrieve
+        BPOut, Tokenbindings = BPTokens_storage(bpsize, bpPortion, BP_activations, probe_x,normalize_fact_novel)
+        BP_activations_out = BPTokens_retrieveByToken( bpsize, bpPortion, BPOut, Tokenbindings, BP_activations, probe_x,normalize_fact_novel)
+        shape_out, color_out = BP_activations_out['shape'], BP_activations_out['color']        
+        pre_retinal_frames = vae.decoder_cropped(activations['shape'].view(probe_x,-1), activations['color'].view(probe_x,-1),0,0)
+
+        pre_BP_recon_frames = vae.decoder_retinal(activations['shape'].view(probe_x,-1), activations['color'].view(probe_x,-1), activations['theta'])
+        pre_BP_recon_frames = F.interpolate(pre_BP_recon_frames, size=(28, 28), mode='bilinear', align_corners=False)
+        
+        recon_frames = vae.decoder_retinal(shape_out, color_out, activations['theta'])
+        recon_frames = F.interpolate(recon_frames, size=(28, 28), mode='bilinear', align_corners=False)
+        
+        recon = build_single(recon_frames.view(1,probe_x,3,28,28)).view(1,3,28,28)
+        probe = build_single(frames[i][:probe_x].view(1,probe_x,3,28,28)).view(1,3,28,28)
+        recon_list += [recon]
+        probe_list += [probe]
+
+
+    save_image(torch.cat([frames[i].view(-1,3,28,28), pre_retinal_frames, pre_BP_recon_frames, recon_frames]), f'{folder_path}{probe_x}_sequential_frames.png', nrow=probe_x, pad_value=0.6, normalize=False)
+    save_image(torch.cat([torch.cat(probe_list[:8]), torch.cat(recon_list[:8])]), f'{folder_path}{probe_x}_sequential.png', nrow=8, pad_value=0.6, normalize=False)
+
+    return 0
+
+@torch.no_grad()
+def fig_simultaneous_vs_sequential_1(vae: VAE_CNN, folder_path: str, load_data: bool = False):
+    pkl_path = f'{folder_path}{log_function_name()}-figure_data.pkl'
+    vae.eval()
+    folder_path += '1/'
+
+    print('generating Figure simultaneous vs sequential plot (1, 3, 6)')
+
+    square_data_1 = torch.load(f'{DATASET_ROOT}/color_square_data/original_1_color.pth', 'cuda:1')[:40]
+    square_data_3 = torch.load(f'{DATASET_ROOT}/color_square_data/original_3_color.pth', 'cuda:1')[:40]
+    #square_data_3_frames = torch.load(f'{DATASET_ROOT}/color_square_data/original_frames_3_color.pth', 'cuda:1')
+    square_data_6 = torch.load(f'{DATASET_ROOT}/color_square_data/original_6_color.pth', 'cuda:1')[:40]
+    square_data_6_frames = torch.load(f'{DATASET_ROOT}/color_square_data/original_frames_6_color.pth', 'cuda:1')[:40]
+    square_data_6_positions = torch.load(f'{DATASET_ROOT}/color_square_data/positions_6_color.pth', 'cuda:1')[:40]
+    print(square_data_6_positions[0])
+    #print(square_data_3_frames.size()) # N,3,3,28,28
+
+    mse_data = {}
+    # store 6 items simultaneously/sequentially
+    mse_data['mse_simultaneous_6'] = simultaneous_encode(vae, square_data_6, folder_path, 6)
+    print(mse_data)
+    mse_data['mse_sequential_6'] = sequential_encode(vae, square_data_6, square_data_6_frames, folder_path, 6)
+    print(mse_data)
+    # store 3 items sequentially
+    mse_data['mse_simultaneous_3'] = simultaneous_encode(vae, square_data_3, folder_path, 3)
+    mse_data['mse_sequential_3'] = sequential_encode(vae, square_data_6, square_data_6_frames, folder_path, 3)
+
+    # store 1 item
+    mse_data['mse_simultaneous_1'] = simultaneous_encode(vae, square_data_1, folder_path, 1)
+    mse_data['mse_sequential_1'] = sequential_encode(vae, square_data_6, square_data_6_frames, folder_path, 1)
+
+    print(mse_data)
+
+@torch.no_grad()
+def fig_simultaneous_vs_sequential(vae: VAE_CNN, folder_path: str, load_data: bool = False):
+    pkl_path = f'{folder_path}{log_function_name()}-figure_data.pkl'
+    vae.eval()
+    bpsize = 13500         #size of the binding pool
+    token_overlap = 0.15
+    bpPortion = int(token_overlap *bpsize)
+
+
+    print('generating Figure simultaneous vs sequential change detection')
+    t = 20
+    square_data_6 = torch.load(f'{DATASET_ROOT}/color_square_data/original_6_color.pth', 'cuda:1')[:t]
+    square_data_6_frames = torch.load(f'{DATASET_ROOT}/color_square_data/original_frames_6_color.pth', 'cuda:1')[:t]
+    square_data_6_change = torch.load(f'{DATASET_ROOT}/color_square_data/change_frames_6_color.pth', 'cuda:1')[:t]  # changed scenes
+    square_data_6_positions = torch.load(f'{DATASET_ROOT}/color_square_data/positions_6_color.pth', 'cuda:1')[:t]
+
+    def compute_correlation(x, y):
+        x, y = x.view(-1), y.view(-1)
+        x_mean, y_mean = torch.mean(x), torch.mean(y)
+        numerator = torch.sum((x - x_mean) * (y - y_mean))
+        denominator = torch.sqrt(torch.sum((x - x_mean)**2) * torch.sum((y - y_mean)**2))
+        return (numerator / denominator).item()
+
+    def compute_dprime(no_change_vector, change_vector):
+        hit_rate = npy.clip(npy.mean(change_vector), 0.01, 0.99)
+        false_alarm_rate = npy.clip(1 - npy.mean(no_change_vector), 0.01, 0.99)
+        return stats.norm.ppf(hit_rate) - stats.norm.ppf(false_alarm_rate)
+
+    def run_change_detection(recon_list, original_list, change_list, threshold):
+        """
+        recon_list:    list of BP-reconstructed tensors (memory)
+        original_list: list of original scene tensors  (no-change probe)
+        change_list:   list of changed scene tensors   (change probe)
+        threshold:     scalar decision boundary
+        Returns accuracy and d-prime.
+        """
+        no_change_detected, change_detected = [], []
+        r_original_all, r_change_all = [], []
+
+        for recon, orig, chng in zip(recon_list, original_list, change_list):
+            r_orig = compute_correlation(recon, orig)
+            r_chng = compute_correlation(recon, chng)
+            r_original_all.append(r_orig)
+            r_change_all.append(r_chng)
+
+            no_change_detected.append(1 if r_orig > threshold else 0)
+            change_detected.append(1 if r_chng <= threshold else 0)
+
+        accuracy = (
+            (sum(no_change_detected) / len(no_change_detected)) +
+            (sum(change_detected)    / len(change_detected))
+        ) / 2
+        dprime = compute_dprime(no_change_detected, change_detected)
+        avg_r = (npy.mean(r_original_all), npy.mean(r_change_all))
+        return accuracy, dprime, avg_r
+
+    # ── encode helpers (unchanged from your originals) ──────────────────────
+
+    def get_simultaneous_recons(data, frames, probe_x, positions):
+        recon_list, original_list = [], []
+        for i in range(len(data)):
+            act = vae.activations(data[i].view(-1, 3, 28, 28), False)
+            BP_act = {'l1': [act['skip'].view(1, -1), 1]}
+            BPOut, Tokenbindings = BPTokens_storage(bpsize, bpPortion, BP_act, 1, normalize_fact_novel)
+            BP_act_out = BPTokens_retrieveByToken(bpsize, bpPortion, BPOut, Tokenbindings, BP_act, 1, normalize_fact_novel)
+            recon = vae.decoder_skip_cropped(0, 0, 0, BP_act_out['l1'].view(1, -1))
+            recon_list.append(recon.squeeze(0))
+            probe = build_single(frames[i][:probe_x].view(1, probe_x, 3, 28, 28)).squeeze(0)
+            original_list.append(probe)
+            #original_list.append(data[i].view(3, 28, 28))
+            
+        save_image(torch.cat([data[:8].view(8,3,28,28), torch.cat(recon_list[:8]).view(8,3,28,28)]), f'{folder_path}{probe_x}_simultaneous.png', nrow=8, pad_value=0.6, normalize=False)
+    
+        
+        if probe_x == 1:
+            for i in range(len(recon_list)):
+                recon_list[i] = zero_outside_radius(recon_list[i], positions[i][0][0], positions[i][0][1], radius=6)
+                #original_list[i] = zero_outside_radius(original_list[i], positions[i][0][0], positions[i][0][1], radius=6)
+        return recon_list, original_list
+
+    def get_sequential_recons(frames, probe_x, input_x=5):
+        recon_list, original_list = [], []
+        n = frames.size(0)
+        for i in range(n):
+            act = vae.activations(frames[i][:input_x].view(-1, 3, 28, 28), True)
+            
+            # always store all 6
+            BP_act = {
+                'shape': [act['shape'].view(input_x, -1), 0],
+                'color': [act['color'].view(input_x, -1), 1],
+            }
+            BPOut, Tokenbindings = BPTokens_storage(
+                bpsize, bpPortion, BP_act, input_x, normalize_fact_novel
+            )
+            
+            # retrieve only probe_x items
+            BP_act_probe = {
+                'shape': [act['shape'].view(input_x, -1)[:min(probe_x, input_x)], 0],
+                'color': [act['color'].view(input_x, -1)[:min(probe_x, input_x)], 1],
+            }
+            BP_act_out = BPTokens_retrieveByToken(
+                bpsize, bpPortion, BPOut, Tokenbindings, BP_act_probe, min(probe_x, input_x), normalize_fact_novel
+            )
+            
+            shape_out, color_out = BP_act_out['shape'], BP_act_out['color']
+            recon_frames = vae.decoder_retinal(shape_out, color_out, act['theta'][:min(probe_x, input_x)])
+            recon_frames = F.interpolate(recon_frames, size=(28, 28), mode='bilinear', align_corners=False)
+            recon = build_single(recon_frames.view(1, min(probe_x, input_x), 3, 28, 28)).squeeze(0)
+            probe = build_single(frames[i][:probe_x].view(1, probe_x, 3, 28, 28)).squeeze(0)
+            recon_list.append(recon)
+            original_list.append(probe)
+
+        #save_image(torch.cat([frames[i].view(-1,3,28,28), pre_retinal_frames, pre_BP_recon_frames, recon_frames]), f'{folder_path}{probe_x}_sequential_frames.png', nrow=probe_x, pad_value=0.6, normalize=False)
+        save_image(torch.cat([torch.cat(original_list[:8]).view(8,3,28,28), torch.cat(recon_list[:8]).view(8,3,28,28)]), f'{folder_path}{probe_x}_sequential.png', nrow=8, pad_value=0.6, normalize=False)
+
+        return recon_list, original_list
+
+    # ── build change probes from change_frames (same shape as original_frames) 
+
+    def get_change_probes(change_frames, probe_x):
+        """Collapse change frames the same way get_sequential_recons collapses originals."""
+        probe_list = []
+        for i in range(change_frames.size(0)):
+            probe = build_single(change_frames[i][:probe_x].view(1, probe_x, 3, 28, 28)).squeeze(0)
+            probe_list.append(probe)
+        return probe_list
+
+    # ── run all conditions ───────────────────────────────────────────────────
+
+    # derive a threshold from the correlation midpoint
+    def midpoint_threshold(recon_list, original_list, change_list):
+        r_orig = npy.mean([compute_correlation(r, o) for r, o in zip(recon_list, original_list)])
+        r_chng = npy.mean([compute_correlation(r, c) for r, c in zip(recon_list, change_list)])
+        return (r_orig + r_chng) / 2
+
+    if not load_data:
+        results = {}
+
+        for probe_x in [1, 3, 6]:
+            # try select 3 supression
+            sim_recons, sim_originals          = get_simultaneous_recons(square_data_6, square_data_6_frames, probe_x, square_data_6_positions)
+            sim_changes                        = get_change_probes(square_data_6_change, probe_x)
+            sim_thresh                         = midpoint_threshold(sim_recons, sim_originals, sim_changes)
+            acc, dp, avg_r                     = run_change_detection(sim_recons, sim_originals, sim_changes, sim_thresh)
+            results[f'simultaneous_{probe_x}']          = {'accuracy': acc, 'dprime': dp, 'r': avg_r}
+
+            seq_recons, seq_originals      = get_sequential_recons(square_data_6_frames, probe_x)
+            seq_changes                    = get_change_probes(square_data_6_change, probe_x)
+            seq_thresh                     = midpoint_threshold(seq_recons, seq_originals, seq_changes)
+            acc, dp, avg_r                 = run_change_detection(seq_recons, seq_originals, seq_changes, seq_thresh)
+            results[f'sequential_{probe_x}'] = {'accuracy': acc, 'dprime': dp, 'r': avg_r}
+        
+        print(results)
+        joblib.dump(results, pkl_path)
+
+    else:
+        results = joblib.load(pkl_path)
+    # ── plotting ─────────────────────────────────────────────────────────────
+    import matplotlib as mpl
+
+    mpl.rcParams['axes.titlesize']  = 16
+    mpl.rcParams['axes.labelsize']  = 15
+    mpl.rcParams['xtick.labelsize'] = 15
+    mpl.rcParams['ytick.labelsize'] = 15
+    mpl.rcParams['legend.fontsize'] = 13
+    probe_sizes = [1, 3, 6]
+    x = npy.arange(len(probe_sizes))
+    bar_width = 0.35
+
+    # d-prime
+    fig, ax = plt.subplots(figsize=(8, 6))
+    sim_dprimes = [results[f'simultaneous_{p}']['dprime'] for p in probe_sizes]
+    seq_dprimes = [results[f'sequential_{p}']['dprime']   for p in probe_sizes]
+    ax.bar(x - bar_width/2, sim_dprimes, width=bar_width, label='simultaneous')
+    ax.bar(x + bar_width/2, seq_dprimes, width=bar_width, label='sequential')
+    ax.set_xticks(x); ax.set_xticklabels(probe_sizes)
+    ax.set_xlabel('probe set size')
+    ax.set_ylabel("d'")
+    ax.set_title("d' — simultaneous vs sequential change detection")
+    ax.legend()
+    plt.tight_layout()
+    plt.savefig(f'{folder_path}cd_sim_vs_seq_dprime.png')
+    plt.close()
+
+    # accuracy
+    fig, ax = plt.subplots(figsize=(8, 6))
+    sim_acc = [results[f'simultaneous_{p}']['accuracy'] for p in probe_sizes]
+    seq_acc = [results[f'sequential_{p}']['accuracy']   for p in probe_sizes]
+    ax.bar(x - bar_width/2, sim_acc, width=bar_width, label='simultaneous')
+    ax.bar(x + bar_width/2, seq_acc, width=bar_width, label='sequential')
+    ax.set_xticks(x); ax.set_xticklabels(probe_sizes)
+    ax.set_xlabel('probe set size')
+    ax.set_ylabel('accuracy')
+    ax.set_title('Accuracy — simultaneous vs sequential change detection')
+    ax.legend()
+    plt.tight_layout()
+    plt.savefig(f'{folder_path}cd_sim_vs_seq_accuracy.png')
+    plt.close()
+
+    # correlation — 4 bars per group: sim no-change, sim change, seq no-change, seq change
+    fig, ax = plt.subplots(figsize=(10, 6))
+    offsets = [-1.5, -0.5, 0.5, 1.5]
+    gap = bar_width * 0.8
+    sim_r_orig = [results[f'simultaneous_{p}']['r'][0] for p in probe_sizes]
+    sim_r_chng = [results[f'simultaneous_{p}']['r'][1] for p in probe_sizes]
+    seq_r_orig = [results[f'sequential_{p}']['r'][0]   for p in probe_sizes]
+    seq_r_chng = [results[f'sequential_{p}']['r'][1]   for p in probe_sizes]
+    ax.bar(x + offsets[0]*gap, sim_r_orig, width=bar_width*0.8, label='sim — no change')
+    ax.bar(x + offsets[1]*gap, sim_r_chng, width=bar_width*0.8, label='sim — change')
+    ax.bar(x + offsets[2]*gap, seq_r_orig, width=bar_width*0.8, label='seq — no change')
+    ax.bar(x + offsets[3]*gap, seq_r_chng, width=bar_width*0.8, label='seq — change')
+    ax.set_xticks(x); ax.set_xticklabels(probe_sizes)
+    ax.set_xlabel('probe set size')
+    ax.set_ylabel('r')
+    ax.set_title('Correlation — simultaneous vs sequential')
+    ax.legend()
+    plt.tight_layout()
+    plt.savefig(f'{folder_path}cd_sim_vs_seq_r.png')
+    plt.close()
 
 @torch.no_grad()
 def fig_efficient_rep(vae: VAE_CNN, folder_path: str, load_data: bool = False):

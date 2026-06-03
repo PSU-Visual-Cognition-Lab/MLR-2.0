@@ -197,6 +197,9 @@ class VAE_CNN(nn.Module):
     def stn_encode(self, x):  # start with a full retina (e.g. 64x64) and extract the cropped object, with scale and location
         B = x.shape[0]
         # x is [B, 3, 64, 64]
+        if x.shape[2] != 64 or x.shape[3] != 64:
+            x = F.interpolate(x, size=(64, 64), mode='bilinear', align_corners=False)
+        
         z=self.localization(x)
         theta = self.regressor(z.view(-1, int(retina_size / 4) * int(retina_size / 4)*16))  # [B, 2, 3],  the scale and location of the item
         theta = theta.view(-1, 3).to(x.device)   
@@ -782,6 +785,25 @@ def component_to_grad(comp): # determine gradient for component training
     else:
         raise Exception(f'Invalid component: {comp}')
 
+def batch_samples(sample_dataloaders, dataloaders, whichdecode_use):
+    samples = []
+    labels = []
+    for sample_dataloader_name in sample_dataloaders:
+        sample_dataloader = dataloaders[sample_dataloader_name]
+        sample, sample_labels = next(sample_dataloader)  #load some data from this particular loader
+        # if the dataloader has retinal=True, take the cropped img for cropped components
+        #print(f'data: {sample_dataloader_name} decode: {whichdecode_use}')
+        
+        if type(sample) == list:
+            if whichdecode_use in ['cropped', 'shape', 'color', 'object', 'cropped_object']:
+                sample = sample[1]   # cropped version
+            else:
+                sample = sample[0]   #Retina version 
+        samples += [sample]
+        labels += sample_labels
+
+    return torch.cat(samples, 0), labels
+
 def train(vae, optimizer, epoch, dataloaders, return_loss = False, seen_labels = {}, components = {}, max_iter = 600, checkpoint_folder=None):
     #components is the list of model latents that will be trained, and these are weighted by repeating some of them.  
     #   So for example repeating 'shape' 3 times for every instance of 'skip_cropped' 
@@ -801,21 +823,7 @@ def train(vae, optimizer, epoch, dataloaders, return_loss = False, seen_labels =
         comp_ind = count % len(components)  #step through the whole list of components
         whichdecode_use = components[comp_ind]  #which particular latent/decoder to use for this component   (string)
         sample_dataloaders = training_components[components[comp_ind]][0]  #which dataloader(s) does this particular component need?  (string)
-        samples = []
-        for sample_dataloader_name in sample_dataloaders:
-            sample_dataloader = dataloaders[sample_dataloader_name]
-            sample, labels = next(sample_dataloader)  #load some data from this particular loader
-            # if the dataloader has retinal=True, take the cropped img for cropped components
-            #print(f'data: {sample_dataloader_name} decode: {whichdecode_use}')
-            
-            if type(sample) == list:
-                if whichdecode_use in ['cropped', 'shape', 'color', 'object', 'cropped_object']:
-                    sample = sample[1]   # cropped version
-                else:
-                    sample = sample[0]   #Retina version 
-            samples += [sample]
-
-        data = torch.cat(samples, 0)
+        data, labels = batch_samples(sample_dataloaders, dataloaders, whichdecode_use)
 
         keepgrad = component_to_grad(whichdecode_use)        
         
@@ -885,15 +893,19 @@ def train(vae, optimizer, epoch, dataloaders, return_loss = False, seen_labels =
         loader.set_description(f'epoch {epoch}; mse: {loss.item():.5f}')
         seen_labels = update_seen_labels(labels,seen_labels)
 
-        test_data, labels = next(dataloaders['emnist-map'])
-        #progress_out(vae, test_data[1], checkpoint_folder,'emnist'+str(epoch))    #this is used to test progress_out without waiting for a whole epoch
+        #test_dataset_name = sample_dataloader_name
+        #print(test_dataset_name)
+        test_data, test_labels = batch_samples(training_components['retinal'][0], dataloaders, 'cropped') # error signals from full pass through MLR
+        progress_out(vae, test_data, checkpoint_folder,'emnist'+str(epoch))    #this is used to test progress_out without waiting for a whole epoch
 
         if count % int(0.9*max_iter) == 0 and epoch % 5 == 1:
             #test_data, j = next(test_iter)
-            test_data, labels = next(dataloaders['emnist-map'])
-            progress_out(vae, test_data[1], checkpoint_folder,'emnist'+str(epoch))
-            test_data, labels = next(dataloaders['quickdraw-map'])
-            progress_out(vae, test_data[1], checkpoint_folder,'quickdraw'+str(epoch))
+            #test_data, test_labels = batch_samples(training_components['retinal'][0], dataloaders, 'retinal')
+            #progress_out(vae, test_data[1], checkpoint_folder,'emnist'+str(epoch))
+            
+            if 'quickdraw-map' in dataloaders:
+                test_data, test_labels = next(dataloaders['quickdraw-map'])
+                progress_out(vae, test_data[1], checkpoint_folder,'quickdraw'+str(epoch))
            
 
         #elif count % 500 == 0: not for RED GREEN
@@ -906,8 +918,11 @@ def train(vae, optimizer, epoch, dataloaders, return_loss = False, seen_labels =
     print(f'====> Epoch: {epoch} Losses: {train_loss_dict}')
     
     if return_loss is True:
-        test_data, test_labels = next(dataloaders['emnist-map'])
-
+        #test_data, test_labels = next(dataloaders['square-map'])
+        test_data_r, test_labels = batch_samples(training_components['retinal'][0], dataloaders, 'retinal') # error signals from full pass through MLR
+        test_data_c, test_labels = batch_samples(training_components['retinal'][0], dataloaders, 'cropped') # error signals from full pass through MLR
+        test_data = [test_data_r, test_data_c]
+        
         test_loss_dict = test_loss(vae, test_data, ['retinal', 'cropped', 'skip_cropped', 'shape', 'color'])
         
         returnval = {'train':train_loss_dict,

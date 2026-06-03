@@ -10,7 +10,7 @@ colors = ["white", "blue", "green", "yellow", "red", "pink", "orange", "purple",
 
 # Define the image size and square size
 image_size = (500, 500)
-square_size = 60
+square_size = 70
 buffer = 5
 
 def generate_color_squares_image(num_squares):
@@ -65,12 +65,26 @@ def generate_change_image(original_positions, original_colors):
         draw_frame = ImageDraw.Draw(cur_frame)
         if i == change_index:
             # generate valid new image
-            new_position = position #original_positions[change_index] # position
-            #while any(abs(new_position[0] - px) < square_size+buffer and abs(new_position[1] - py) < square_size+buffer for px, py in original_positions):
-             #   new_position = (random.randint(0, image_size[0] - square_size), random.randint(0, image_size[1] - square_size))
-            
+            new_position = position  # start same to enter the loop
+            '''while (
+                # must differ enough from original position
+                (abs(new_position[0] - position[0]) < square_size + buffer and 
+                abs(new_position[1] - position[1]) < square_size + buffer)
+                or
+                # must not overlap any other square
+                any(
+                    abs(new_position[0] - px) < square_size + buffer and 
+                    abs(new_position[1] - py) < square_size + buffer
+                    for j, (px, py) in enumerate(original_positions) if j != change_index
+                )
+            ):
+                new_position = (
+                    random.randint(0, image_size[0] - square_size),
+                    random.randint(0, image_size[1] - square_size)
+                )'''
+
             draw.rectangle([new_position, (new_position[0] + square_size, new_position[1] + square_size)], fill=new_color) #new_color V
-            draw_frame.rectangle([new_position, (new_position[0] + square_size, new_position[1] + square_size)], fill=color)
+            draw_frame.rectangle([new_position, (new_position[0] + square_size, new_position[1] + square_size)], fill=new_color)
             frames[i] = cur_frame.resize((28,28))
         else:
             draw.rectangle([position, (position[0] + square_size, position[1] + square_size)], fill=color)
@@ -94,37 +108,40 @@ def main(args):
             save_images(original_image, change_image, i)
     else:
         for set_size in range(1, num_squares+1):
-            totensor = transforms.ToTensor()
-            original_image, positions, colors, original_frames = generate_color_squares_image(set_size)
-            change_image, change_frames = generate_change_image(positions, colors)
-            original_image, change_image = original_image.resize((28,28)), change_image.resize((28,28))
-            original, change =  totensor(original_image).view(1,3,28,28), totensor(change_image).view(1,3,28,28)
-            original_frames_out = torch.stack([totensor(frame) for frame in original_frames]).view(1,set_size,3,28,28)
-            change_frames_out = torch.stack([totensor(frame) for frame in change_frames]).view(1,set_size,3,28,28)
-            out_positions = [positions]
-            print('frames',original_frames_out.size())
-
-            for i in range(1, num_images):
+            if set_size in [6]: # WILL ONLY GENERATE 6 SQUARE DATA
+                print('WILL ONLY GENERATE 6 SQUARE DATA!!')
+                totensor = transforms.ToTensor()
                 original_image, positions, colors, original_frames = generate_color_squares_image(set_size)
                 change_image, change_frames = generate_change_image(positions, colors)
                 original_image, change_image = original_image.resize((28,28)), change_image.resize((28,28))
-                original_image, change_image =  totensor(original_image).view(1,3,28,28), totensor(change_image).view(1,3,28,28)
-                original_frames = torch.stack([totensor(frame) for frame in original_frames]).view(1,set_size,3,28,28)
-                change_frames = torch.stack([totensor(frame) for frame in change_frames]).view(1,set_size,3,28,28)
+                original, change =  totensor(original_image).view(1,3,28,28), totensor(change_image).view(1,3,28,28)
+                original_frames_out = torch.stack([totensor(frame) for frame in original_frames]).view(1,set_size,3,28,28)
+                change_frames_out = torch.stack([totensor(frame) for frame in change_frames]).view(1,set_size,3,28,28)
+                out_positions = [positions]
+                print('frames',original_frames_out.size())
 
-                original = torch.cat([original, original_image],dim=0)
-                change = torch.cat([change, change_image],dim=0)
-                original_frames_out = torch.cat([original_frames_out, original_frames],dim=0)
-                change_frames_out = torch.cat([change_frames_out, change_frames],dim=0)
-                out_positions += [positions]
+                for i in range(1, num_images):
+                    original_image, positions, colors, original_frames = generate_color_squares_image(set_size)
+                    change_image, change_frames = generate_change_image(positions, colors)
+                    original_image, change_image = original_image.resize((28,28)), change_image.resize((28,28))
+                    original_image, change_image =  totensor(original_image).view(1,3,28,28), totensor(change_image).view(1,3,28,28)
+                    original_frames = torch.stack([totensor(frame) for frame in original_frames]).view(1,set_size,3,28,28)
+                    change_frames = torch.stack([totensor(frame) for frame in change_frames]).view(1,set_size,3,28,28)
+
+                    original = torch.cat([original, original_image],dim=0)
+                    change = torch.cat([change, change_image],dim=0)
+                    original_frames_out = torch.cat([original_frames_out, original_frames],dim=0)
+                    change_frames_out = torch.cat([change_frames_out, change_frames],dim=0)
+                    out_positions += [positions]
 
             
-            torch.save(original, f'original_{set_size}_color.pth')
-            torch.save(change, f'change_{set_size}_color.pth')
-            torch.save(original_frames_out, f'original_frames_{set_size}_color.pth')
-            torch.save(change_frames_out, f'change_frames_{set_size}_color.pth')
-            torch.save(out_positions, f'positions_{set_size}_color.pth')
-            print(original.size())
+                filepath = 'color_square_data/'
+                torch.save(original, f'{filepath}original_{set_size}_color.pth')
+                #torch.save(change, f'{filepath}change_{set_size}_color.pth')
+                torch.save(original_frames_out, f'{filepath}original_frames_{set_size}_color.pth')
+                torch.save(change_frames_out, f'{filepath}change_frames_{set_size}_color.pth')
+                torch.save(out_positions, f'{filepath}positions_{set_size}_color.pth')
+                print(original.size())
 
 
 
@@ -135,6 +152,7 @@ if __name__ == "__main__":
     parser.add_argument("--num_squares", type=int, default=4, help="Number of squares in each image")
     parser.add_argument("--to_tensor", type=bool, default=False, help="save as tensor")
     parser.add_argument("--change", type=str, default='color', help="change type")
+    #parser.add_argument("--filepath", type=str, default='color', help="change type")
     args = parser.parse_args()
     
     main(args)

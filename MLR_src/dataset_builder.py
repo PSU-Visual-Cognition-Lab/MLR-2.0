@@ -160,7 +160,7 @@ class ToTensor:
 
 def generate_square_crop_image(image_size=(28, 28)):
     """Generate a black image with a white square in the center"""
-    square_size = 8
+    square_size = random.randint(7, 10)
     
     # Create a black background as a numpy array
     image_array = np.zeros((image_size[0], image_size[1]), dtype=np.uint8)
