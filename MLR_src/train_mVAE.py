@@ -24,7 +24,7 @@ def train_mVAE(dataloaders, components, vae, epoch_count, checkpoint_folder, use
 
         loss_dicts, seen_labels = train(vae, optimizer, epoch, dataloaders, True, seen_labels, components_list, 600, checkpoint_folder)
 
-        if use_wandb is True:   #this connects with weights and biases.. a website that tracks loss data over time.  Currently inoperable due to version conflict
+        if use_wandb is True:   #this connects with weights and biases.. a website that tracks loss data over time.
             wandb_log = {'epoch': epoch}
 
             for phase, losses in loss_dicts.items():
