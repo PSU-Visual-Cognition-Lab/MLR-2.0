@@ -14,10 +14,11 @@ from sklearn.mixture import GaussianMixture
 
 DATASET_ROOT = '/home/bwyble/data/'
 
-def preprocess_quickdraw(base_dataset):
-    if not os.path.exists('data/preprocessed_quickdraw.pkl') or not os.path.exists('data/preprocessed_quickdraw_indices.pkl'):
+def preprocess_quickdraw(base_dataset, model_name):
+    if not os.path.exists(f'data/preprocessed_quickdraw_{model_name}.pkl') or not os.path.exists(f'data/preprocessed_quickdraw_indices_{model_name}.pkl'):
         dataset_dict = defaultdict(list)
         index_dict = defaultdict(list) # index mapping between basedataset and dataset_dict
+        print('classes:', np.unique(base_dataset[:,-1]))
         for i in range(len(base_dataset)):
             image = base_dataset[i, :-1].reshape(28, 28)  # image
             np_img = np.dstack([image, image, image])
@@ -27,34 +28,39 @@ def preprocess_quickdraw(base_dataset):
             index_dict[target] += [i]
 
         #save_image(dataset_dict[0][1], 'sample123.png', pad_value=0.6)
-        joblib.dump(dataset_dict, 'data/preprocessed_quickdraw.pkl')
-        joblib.dump(index_dict, 'data/preprocessed_quickdraw_indices.pkl')
+        joblib.dump(dataset_dict, f'data/preprocessed_quickdraw_{model_name}.pkl')
+        joblib.dump(index_dict, f'data/preprocessed_quickdraw_indices_{model_name}.pkl')
         print('data preprocessing done')
         return dataset_dict, index_dict
     
     else:
         print('data loading')
-        dataset_dict = joblib.load('data/preprocessed_quickdraw.pkl')
-        index_dict = joblib.load('data/preprocessed_quickdraw_indices.pkl')
-    
+        dataset_dict = joblib.load(f'data/preprocessed_quickdraw_{model_name}.pkl')
+        index_dict = joblib.load(f'data/preprocessed_quickdraw_indices_{model_name}.pkl')
+
     return dataset_dict, index_dict
 
 @torch.no_grad()
-def filter_quickdraw(model, base_dataset, n_clusters=10, d=1):
+def filter_quickdraw(model, base_dataset, n_clusters=10, d=1, model_name='123'):
     print('preprocessing_quickdraw')
-    # run if switching dataset or loading a different VAE version:
-    #data_dict, index_dict = preprocess_quickdraw(base_dataset)
-    # run if preprocessed data for the same dataset and VAE version already exists:
-    index_dict = joblib.load('data/preprocessed_quickdraw_indices.pkl')
+    index_list = [0, 2, 7, 8, 10, 11] # [0,1,2,3,4,5,6,7,8,9,10,11] #  
+    
+    index_built = [os.path.exists(f'data/object_act_class_{model_name}_{i}.pkl') for i in index_list]
+    if not all(index_built):
+        # run if switching dataset or loading a different VAE version:
+        data_dict, index_dict = preprocess_quickdraw(base_dataset, 'VAE_CNN')
+    
+    else:
+        # run if preprocessed data for the same dataset and VAE version already exists:
+        index_dict = joblib.load(f'data/preprocessed_quickdraw_indices_VAE_CNN.pkl')
     #kmeans = KMeans(n_clusters=n_clusters, n_init=10, random_state=0)
     results = {}
     # which classes to keep for the filtered set:
-    index_list = [0,2,7,8,9]
-
+    
     for i in index_list: #index_dict.keys():
         print('i:', i)
 
-        if not os.path.exists(f'data/object_act_class_{i}.pkl'):
+        if not os.path.exists(f'data/object_act_class_{model_name}_{i}.pkl'):
             # memory management
             object_act = []
             for j in range(1, len(data_dict[i])//1000 + 1):
@@ -67,9 +73,9 @@ def filter_quickdraw(model, base_dataset, n_clusters=10, d=1):
                 object_act += [t_object_act]
             
             object_act = torch.cat(object_act, dim=0)  # [N, 12]
-            joblib.dump(object_act, f'data/object_act_class_{i}.pkl')
+            joblib.dump(object_act, f'data/object_act_class_{model_name}_{i}.pkl')
         else:
-            object_act = joblib.load(f'data/object_act_class_{i}.pkl')
+            object_act = joblib.load(f'data/object_act_class_{model_name}_{i}.pkl')
         
         print('object_act:', object_act.size())
         
@@ -87,11 +93,26 @@ def filter_quickdraw(model, base_dataset, n_clusters=10, d=1):
         labels = gmm.fit_predict(object_act)
 
         cluster_sizes = np.bincount(labels)
-        max_cluster = np.argmax(cluster_sizes)
-        print('max_cluster:', max_cluster)
+        sample_count = 400
+        # TODO: use selected clock index and find closest samples to it
+        if i == 10: #clock
+            # choose the 400 samples closest to clock sample number 87
+            clock_sample_idx = 87
+            clock_sample = object_act[clock_sample_idx]
+            dists = np.linalg.norm(object_act - clock_sample, axis=1)
+            selected_indices = np.argsort(dists)[:sample_count]
+        elif i == 8: #sailboat
+            # choose the 400 samples closest to sailboat sample number 226
+            sailboat_sample_idx = 990
+            sailboat_sample = object_act[sailboat_sample_idx]
+            dists = np.linalg.norm(object_act - sailboat_sample, axis=1)
+            selected_indices = np.argsort(dists)[:sample_count]
+        else:
+            max_cluster = np.argmax(cluster_sizes)
+            print('max_cluster:', max_cluster)
 
-        probs = gmm.predict_proba(object_act)[:, max_cluster]
-        selected_indices = np.argsort(probs)[::-1][:400]
+            probs = gmm.predict_proba(object_act)[:, max_cluster]
+            selected_indices = np.argsort(probs)[::-1][:sample_count]
         
         #print(selected_indices)
         result_indices = [index_dict[i][idx] for idx in selected_indices]
@@ -102,7 +123,7 @@ def filter_quickdraw(model, base_dataset, n_clusters=10, d=1):
 
 
 def save_filtered_images(base_dataset, filtered_indices):
-    grid_cols = len(filtered_indices[0])//10
+    grid_cols = len(filtered_indices[next(iter(filtered_indices))])//10
     print('filtered_indices keys:', filtered_indices.keys())
     os.makedirs('filtered_images', exist_ok=True)
     filtered_dataset = []
@@ -130,11 +151,11 @@ def save_filtered_images(base_dataset, filtered_indices):
 
 base_dataset = np.load(f'{DATASET_ROOT}quickdraw_npy/full_numpy_bitmap_all_objs.npy')
 print(base_dataset.shape)
-folder_name = "filtered_quickdraw"
-checkpoint_folder_path = '/home/bpw10/mlrdev/MLR-2.0_clean2/checkpoints/VSSReady' #f'checkpoints/{folder_name}/'
+folder_name = "group-quickdraw-full-1000"
+checkpoint_folder_path = f'checkpoints/{folder_name}'
 vae = load_checkpoint(f'{checkpoint_folder_path}/mVAE_checkpoint.pth', d=1, draw=True)
 vae.eval()
 
-filtered_indices = filter_quickdraw(vae, base_dataset, n_clusters=60)
+filtered_indices = filter_quickdraw(vae, base_dataset, n_clusters=40, d= 1, model_name=folder_name)
 save_filtered_images(base_dataset, filtered_indices)
 

@@ -3,23 +3,31 @@ import time
 import argparse
 
 parser = argparse.ArgumentParser(description="Training of MLR-2.0")
-parser.add_argument("--load_prev", type=bool, default=False, help="Begin training from previous checkpoints")
+parser.add_argument("--load_prev", type=bool, default=False, help="Begin training from previous checkpoints, if retraining SVM/label net this must be True")
 parser.add_argument("--cuda", type=bool, default=True, help="Cuda availability")
 parser.add_argument("--cuda_device", type=int, default=1, help="Which cuda device to use")
 parser.add_argument("--folder", type=str, default='test', help="Where to store checkpoints in checkpoints/")
 # VVV defines which components are trained
-parser.add_argument("--components", nargs='+', type=str, default=['shape', 'color', 'retinal', 'object', 'skip_cropped', 'cropped', 'retinal_object', 'cropped_object'], help="Which components to train")
+parser.add_argument("--components", nargs='+', type=str, default=['shape', 'color', 'retinal', 'object', 'skip_cropped', 'cropped', 'retinal_object', 'cropped_object'], help="Which components to train") #stn_retinal
 #parser.add_argument("--components", nargs='+', type=str, default=['shape', 'color', 'retinal', 'skip_cropped', 'cropped'], help="Which components to train")
-parser.add_argument("--z_dim", type=int, default=12, help="Size of the mVAE latent dimension")
+parser.add_argument("--z_dim", nargs='+', type=int, default=[16, 6, 14], help="Size of the mVAE latent dimensions, in order: shape, color, object")
 parser.add_argument("--train_list", nargs='+', type=str, default=['mVAE', 'label_net', 'SVM'], help="Which models to train")
 parser.add_argument("--wandb", type=bool, default=False, help="Track training with wandb")
 parser.add_argument("--checkpoint_name", type=str, default='mVAE_checkpoint.pth', help="file name of checkpoint .pth")
 parser.add_argument("--start_ep", type=int, default=1, help="what epoch to resume training")
 parser.add_argument("--end_ep", type=int, default=100, help="what epoch to train to")
+parser.add_argument("--train_retinal_end", type=float, default=0.8, help="what fraction of training to start training the retinal latent space (0.0 for all epochs, 1.0 for none...)")
+parser.add_argument("--wait", type=int, default=0, help="how many seconds to wait before training")
+parser.add_argument("--ep_size", type=int, default=60, help="how many batches per epoch") # min 10
+parser.add_argument("--debug", type=bool, default=False, help="Enable debug mode")
 #parser.add_argument("--batch_size", nargs='+', type=int, default=['mVAE', 'label_net', 'SVM'], help="Which components to train")
 args = parser.parse_args()
+debug = args.debug
 
-
+wait_time = args.wait
+if wait_time > 0:
+    print(f'Waiting for {wait_time} seconds before training...')
+    time.sleep(wait_time)
 # prerequisites
 import torch
 import os
@@ -70,7 +78,7 @@ else:
     device = 'cpu'
     print('CUDA not available')
 
-bs=100   #batch size for training the main VAE
+bs=1000   #batch size for training the main VAE
 SVM_bs = 1000  #batch size for training the svm classifiers
 obj_latent_flag = True   #this flag determines whether the VAE has an obj latent space
 
@@ -81,7 +89,7 @@ if load is True:
     print('checkpoint loaded from folder'+checkpoint_folder_path +args.checkpoint_name)     
 
 else:
-    dimensions = [-1, -1, 128, args.z_dim]
+    dimensions = [-1, -1, 128, args.z_dim[0], args.z_dim[1], args.z_dim[2]]  #the dimensions of the mVAE latent spaces, in order: shape, color, retinal, object
     vae, dimensions = vae_builder(dimensions, obj_latent_flag)
 
 #vae = nn.DataParallel(vae)
@@ -95,6 +103,8 @@ weighted_components = [] #specifies the order/frequency the model latents will b
 # model components are the latent spaces, like shape, color, etc   Each component also has a specific list of transforms
 
 for component in args.components:
+    if debug:
+        print(f'Component: {component}')
     weight = training_components[component][1]
     weighted_components += [component] * weight
     for dataset in training_components[component][0]:
@@ -103,13 +113,21 @@ for component in args.components:
         dataloader = cycle(Dataset(dataset_name, dataset_transforms).get_loader(bs//len(training_components[component][0])))
         dataloaders[dataset] = iter(dataloader)
 
+if debug is True:
+    print('Dataloaders:')
+    for dataset in dataloaders.keys():
+        print(f'{dataset}: {dataloaders[dataset]}')
+
 # init dataloaders for SVM training
 for component in args.components:
     for dataset in training_components[component][0]:
         dataset_name = dataset.split('-')[0]
         dataset_transforms = training_datasets[dataset]   #load the transforms for this dataset
         SVM_dataloaders[dataset] = cycle(Dataset(dataset_name, dataset_transforms).get_loader(SVM_bs))
-
+if debug is True:
+    print('SVM Dataloaders:')
+    for dataset in SVM_dataloaders.keys():
+        print(f'{dataset}: {SVM_dataloaders[dataset]}')
 
 vae.to(device)
 
@@ -133,12 +151,12 @@ save_image(
 #train mVAE
 if 'mVAE' in args.train_list:
     print('Training: mVAE')
-    train_mVAE(dataloaders, weighted_components, vae, epoch_count, folder_name, args.wandb, args.start_ep, dimensions)
+    train_mVAE(dataloaders, weighted_components, vae, epoch_count, folder_name, args.wandb, args.start_ep, dimensions, args.ep_size, args.train_retinal_end)
 
 #train_labels
 if 'label_net' in args.train_list:
     print('Training: label networks')
-    train_labelnet(dataloaders, vae, 15, args.z_dim, folder_name, args.components)
+    train_labelnet(dataloaders, vae, 25, dimensions[3], dimensions[4], dimensions[5], folder_name, args.components)
 
 #train_classifiers
 if 'SVM' in args.train_list:

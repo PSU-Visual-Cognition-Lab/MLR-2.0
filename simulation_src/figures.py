@@ -1,6 +1,7 @@
 colornames = ["red", "blue","green","purple","yellow","cyan","orange","brown","pink","teal"]
-object_names = ['airplane', 'bird', 'car', 'cat', 'dog', 'duck', 'frog', 'horse', 'sailboat', 'truck']
+object_names = ['airplane', 'bird', 'car', 'cat', 'dog', 'duck', 'frog', 'horse', 'sailboat', 'truck', 'clock', 'umbrella']
 DATASET_ROOT = '/home/bwyble/data/'
+quickdraw_target_set = [0,2,8,10,11]
 
 # prerequisites
 import torch
@@ -10,6 +11,7 @@ from collections import defaultdict
 import torch.nn.functional as F
 from PIL import Image, ImageDraw, ImageFont
 import matplotlib.pyplot as plt
+import matplotlib as mpl
 from torchvision import datasets, transforms
 from torchvision.utils import save_image
 import math
@@ -28,6 +30,8 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from MLR_src.dataset_builder import Dataset, Colorize_specific
 from MLR_src.mVAE import VAE_CNN
 from MLR_src.BP_functions import BPTokens_binding_all, BPTokens_retrieveByToken, BPTokens_storage, BPTokens_with_labels
+from MLR_src.label_network import s_classes
+from training_constants import text_to_tensor
 import random
 
 
@@ -227,7 +231,7 @@ def fig_simultaneous_vs_sequential(vae: VAE_CNN, folder_path: str, load_data: bo
 
 
     print('generating Figure simultaneous vs sequential change detection')
-    t = 20
+    t = 200
     square_data_6 = torch.load(f'{DATASET_ROOT}/color_square_data/original_6_color.pth', 'cuda:1')[:t]
     square_data_6_frames = torch.load(f'{DATASET_ROOT}/color_square_data/original_frames_6_color.pth', 'cuda:1')[:t]
     square_data_6_change = torch.load(f'{DATASET_ROOT}/color_square_data/change_frames_6_color.pth', 'cuda:1')[:t]  # changed scenes
@@ -272,8 +276,6 @@ def fig_simultaneous_vs_sequential(vae: VAE_CNN, folder_path: str, load_data: bo
         dprime = compute_dprime(no_change_detected, change_detected)
         avg_r = (npy.mean(r_original_all), npy.mean(r_change_all))
         return accuracy, dprime, avg_r
-
-    # ── encode helpers (unchanged from your originals) ──────────────────────
 
     def get_simultaneous_recons(data, frames, probe_x, positions):
         recon_list, original_list = [], []
@@ -334,8 +336,6 @@ def fig_simultaneous_vs_sequential(vae: VAE_CNN, folder_path: str, load_data: bo
 
         return recon_list, original_list
 
-    # ── build change probes from change_frames (same shape as original_frames) 
-
     def get_change_probes(change_frames, probe_x):
         """Collapse change frames the same way get_sequential_recons collapses originals."""
         probe_list = []
@@ -343,8 +343,6 @@ def fig_simultaneous_vs_sequential(vae: VAE_CNN, folder_path: str, load_data: bo
             probe = build_single(change_frames[i][:probe_x].view(1, probe_x, 3, 28, 28)).squeeze(0)
             probe_list.append(probe)
         return probe_list
-
-    # ── run all conditions ───────────────────────────────────────────────────
 
     # derive a threshold from the correlation midpoint
     def midpoint_threshold(recon_list, original_list, change_list):
@@ -356,14 +354,13 @@ def fig_simultaneous_vs_sequential(vae: VAE_CNN, folder_path: str, load_data: bo
         results = {}
 
         for probe_x in [1, 3, 6]:
-            # try select 3 supression
             sim_recons, sim_originals          = get_simultaneous_recons(square_data_6, square_data_6_frames, probe_x, square_data_6_positions)
             sim_changes                        = get_change_probes(square_data_6_change, probe_x)
             sim_thresh                         = midpoint_threshold(sim_recons, sim_originals, sim_changes)
             acc, dp, avg_r                     = run_change_detection(sim_recons, sim_originals, sim_changes, sim_thresh)
             results[f'simultaneous_{probe_x}']          = {'accuracy': acc, 'dprime': dp, 'r': avg_r}
 
-            seq_recons, seq_originals      = get_sequential_recons(square_data_6_frames, probe_x)
+            seq_recons, seq_originals      = get_sequential_recons(square_data_6_frames, probe_x, probe_x)
             seq_changes                    = get_change_probes(square_data_6_change, probe_x)
             seq_thresh                     = midpoint_threshold(seq_recons, seq_originals, seq_changes)
             acc, dp, avg_r                 = run_change_detection(seq_recons, seq_originals, seq_changes, seq_thresh)
@@ -374,8 +371,6 @@ def fig_simultaneous_vs_sequential(vae: VAE_CNN, folder_path: str, load_data: bo
 
     else:
         results = joblib.load(pkl_path)
-    # ── plotting ─────────────────────────────────────────────────────────────
-    import matplotlib as mpl
 
     mpl.rcParams['axes.titlesize']  = 16
     mpl.rcParams['axes.labelsize']  = 15
@@ -611,7 +606,7 @@ def fig_repeat_recon(vae: VAE_CNN, folder_path: str, load_data: bool = False):
     numimg = 3  #how many objects will we use here?
     #torch.set_default_dtype(torch.float64)
     #make the data loader, but specifically we are creating stimuli on the opposite to how the model was trained
-    test_loader_noSkip= Dataset('emnist',{'colorize':False}, train=True).get_loader(numimg)
+    test_loader_noSkip = Dataset('emnist',{'colorize':False}, train=True).get_loader(numimg)
 
     dataiter_noSkip = iter(test_loader_noSkip)
     data, labels = next(dataiter_noSkip)
@@ -621,14 +616,14 @@ def fig_repeat_recon(vae: VAE_CNN, folder_path: str, load_data: bool = False):
     imgs = []
     c = 0
     while c < 2:
-        if labels[0][0].item() == 1:
+        if labels[0][0].item() == 11:
             imgs += [data[0]]
             c += 1
         data, labels = next(dataiter_noSkip)
     
     c = 0
     while c < 1:
-        if labels[0][0].item() == 2:
+        if labels[0][0].item() == 12:
             imgs += [data[0]]
             c += 1
         data, labels = next(dataiter_noSkip)
@@ -723,20 +718,20 @@ def fig_non_repeat_recon(vae: VAE_CNN, folder_path: str, load_data: bool = False
     imgs = []
     c = 0
     while c < 1:
-        if labels[0][0].item() == 0:
+        if labels[0][0].item() == 10:
             imgs += [data[0]]
             c += 1
         data, labels = next(dataiter_noSkip)
     c = 0
     while c < 1:
-        if labels[0][0].item() == 1:
+        if labels[0][0].item() == 11:
             imgs += [data[0]]
             c += 1
         data, labels = next(dataiter_noSkip)
     
     c = 0
     while c < 1:
-        if labels[0][0].item() == 2:
+        if labels[0][0].item() == 12:
             imgs += [data[0]]
             c += 1
         data, labels = next(dataiter_noSkip)
@@ -830,14 +825,14 @@ def fig_non_color_repeat_recon(vae: VAE_CNN, folder_path: str, load_data: bool =
     imgs = []
     c = 0
     while c < 2:
-        if labels[0][0].item() == 5:
+        if labels[0][0].item() == 15:
             imgs += [data[0]]
             c += 1
         data, labels = next(dataiter_noSkip)
     
     c = 0
     while c < 1:
-        if labels[0][0].item() == 3:
+        if labels[0][0].item() == 13:
             imgs += [data[0]]
             c += 1
         data, labels = next(dataiter_noSkip)
@@ -898,6 +893,55 @@ def fig_non_color_repeat_recon(vae: VAE_CNN, folder_path: str, load_data: bool =
     save_image(imgmatrixL1, f'{folder_path}figure_non_color_repeat_L1.png',  nrow=numimg,        normalize=False) #range=(-1, 1))
     save_image(imgmatrixMap, f'{folder_path}figure_non_color_repeat_Map.png',  nrow=numimg,        normalize=False) #,range=(-1, 1))
 
+@torch.no_grad()
+def percept_concept(vae: VAE_CNN, shape_label, s_classes, folder_path: str, load_data: bool = False):
+    pkl_path = f'{folder_path}{log_function_name()}-figure_data.pkl'
+    mnist_loader = Dataset('mnist',{'retina':False, 'colorize':True}, train=True).get_loader(1)
+    vals = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z']
+
+    vae.eval()
+    label = 8 #35
+    percept_label = 3 #7
+    print(vals[label])
+    data_iter = iter(mnist_loader)
+    
+    target = 0
+    while target != percept_label:
+        data = next(data_iter)
+        img = data[0][0].cuda()
+        target = data[1][0][0].item()
+        img = img.view(1,3,28,28)
+
+    # build one hot vectors to be passed to the label networks
+    onehot_label = F.one_hot(torch.tensor([label]).cuda(), num_classes=s_classes).float().cuda() # shape
+
+    # generate shape latents from the labels n = noise
+    z_shape_labels = shape_label(onehot_label, n = 10)
+    activations = vae.activations(img.view(-1,3,28,28), False)
+    z_shape_img = activations['shape']
+    z_color_img = activations['color']       
+
+    combined_z_shape = (z_shape_labels+z_shape_img)*(1/2)
+    print(combined_z_shape.size())
+
+    # pass latents from label network through encoder
+    recon_shape_combined = vae.decoder_cropped(combined_z_shape, z_color_img, 0, 0)
+    recon_shape_label = vae.decoder_cropped(z_shape_labels, z_color_img, 0, 0)
+    
+    '''    #comb_img = torch.cat([comb_img, comb_img],0)
+    l1,l2,z_shape, z_color, z_location = activations(comb_img)
+
+    pred_ss = clf_shapeS.predict(z_shape.cpu())
+    pred_proba = clf_shapeS.predict_proba(z_shape.cpu())
+
+    recon_shape = vae.decoder_shape(z_shape, 0, 0)'''
+
+    save_image(recon_shape_combined,f'{folder_path}percept_concept_{target}-{label}.png') #8B, 8
+    save_image(recon_shape_label,f'{folder_path}percept_concept_{label}_label.png')
+    save_image(img,f'{folder_path}percept_{target}.png')
+
+    '''    print(pred_ss)
+    print(vals[pred_ss[0].item()])'''
 
 @torch.no_grad()
 def fig_novel_representations(vae: VAE_CNN, folder_path: str, load_data: bool = False):
@@ -911,7 +955,7 @@ def fig_novel_representations(vae: VAE_CNN, folder_path: str, load_data: bool = 
     numimg = 6
     vae.eval()
     bpsize = 25000#00         #size of the binding pool
-    token_overlap =0.35
+    token_overlap =0.9
     bpPortion = int(token_overlap *bpsize) # number binding pool neurons used for each item
     #load in some examples of Bengali Characters
     for i in range (1,numimg+1):
@@ -936,6 +980,8 @@ def fig_novel_representations(vae: VAE_CNN, folder_path: str, load_data: bool = 
     l1_act = activations['skip']
     shape_act = activations['shape']
     color_act = activations['color']
+
+    pre_bp = vae.decoder_skip_cropped(0, 0, 0, l1_act.view(1,-1))
 
     imgmatrixL1skip  = torch.empty((0,3,28,28)).cuda()
     imgmatrixL1noskip  = torch.empty((0,3,28,28)).cuda()
@@ -978,8 +1024,10 @@ def fig_novel_representations(vae: VAE_CNN, folder_path: str, load_data: bool = 
     
 
     #save an image showing:  original images, reconstructions directly from L1,  from L1 BP, from L1 BP through bottleneck, from maps BP
-    save_image(torch.cat([imgs[0: numimg].view(numimg, 3, 28, imgsize), imgmatrixL1skip], 0), f'{folder_path}fig_novel_rep.png',
+    save_image(torch.cat([imgs[0: numimg].view(numimg, 3, 28, imgsize), pre_bp, imgmatrixL1skip, imgmatrixL1noskip, imgmatrixMap], 0), f'{folder_path}fig_novel_rep.png',
             nrow=numimg,            normalize=False,)
+
+ #TODO: rotated V in an O to form clock, J under rotated D to form an umbrella
 
 @torch.no_grad()
 def fig_retinal_mod(vae: VAE_CNN, folder_path: str, load_data: bool = False):
@@ -1020,13 +1068,391 @@ def fig_retinal_mod(vae: VAE_CNN, folder_path: str, load_data: bool = False):
         nrow=bs, normalize=False)
 
 @torch.no_grad()
-def fig_visual_synthesis(vae: VAE_CNN, shape_label, s_classes, object_classifier, folder_path: str, load_data: bool = False):
+def recon_test(vae: VAE_CNN, folder_path: str, load_data: bool = False):
     pkl_path = f'{folder_path}{log_function_name()}-figure_data.pkl'
+    vae.eval()
+    bpsize = 10000#00         #size of the binding pool
+    token_overlap =0.3
+    bpPortion = int(token_overlap *bpsize) # number binding pool neurons used for each item
 
+    bs = 10
+    device = next(vae.parameters()).device
+    
+    obj_1_transforms = {'retina':True, 'colorize':True, 'scale':False, 'target_set': quickdraw_target_set,  'location_targets':{(-1,-1):list(range(0,s_classes+1))}}
+    obj_1_loader = Dataset('quickdraw', obj_1_transforms).get_loader(bs)
+
+    data, labels = next(iter(obj_1_loader))
+
+    activations = vae.activations(data[0].to(device), True)
+
+    shape_recon = vae.decoder_shape(activations['shape'], 0, 0)
+    color_recon = vae.decoder_color(0, activations['color'], 0)
+    object_recon = vae.decoder_object(activations['object'], 0, 0)
+    skip_recon = vae.decoder_skip_cropped(0, 0, 0, activations['skip'])
+    save_image(
+        torch.cat([data[1].to(device), skip_recon, object_recon, color_recon, shape_recon], 0),
+        f'{folder_path}figure_recon_test.png', pad_value=0.6,
+        nrow=bs, normalize=False)
+
+@torch.no_grad()
+def fig_obj_scene_recon(vae: VAE_CNN, object_label, color_label, object_classifier, color_classifier, folder_path: str, load_data: bool = False):
+    pkl_path = f'{folder_path}{log_function_name()}-figure_data.pkl'
+    vae.eval()
+    bpsize = 8000#00         #size of the binding pool
+    token_overlap =0.3
+    n = 7
+    bpPortion = int(token_overlap *bpsize) # number binding pool neurons used for each item
+
+    bs = 1
+    device = next(vae.parameters()).device
+    object_label.to(device)
+
+    quickdraw_target_set = [0, 2, 8, 10, 11]
+    obj_1_transforms = {'retina': True, 'colorize': True, 'scale': False, 'target_set': quickdraw_target_set,
+                        'location_targets': {(-1, -1): list(range(0, s_classes + 1))}}
+    obj_1_loader = Dataset('quickdraw', obj_1_transforms).get_loader(bs)
+
+    obj_2_transforms = {'retina': True, 'colorize': True, 'scale': False, 'target_set': quickdraw_target_set,
+                        'location_targets': {(-1, 1): list(range(0, s_classes + 1))}}
+    obj_2_loader = Dataset('quickdraw', obj_2_transforms).get_loader(bs)
+
+    obj_3_transforms = {'retina': True, 'colorize': True, 'scale': False, 'target_set': quickdraw_target_set,
+                        'location_targets': {(1, 1): list(range(0, s_classes + 1))}}
+    obj_3_loader = Dataset('quickdraw', obj_3_transforms).get_loader(bs)
+
+    comb_img_col = []
+    obj_recon_no_BP_col = []
+    obj_recon_BP_col = []
+    obj_recon_label_col = []
+    obj_recon_BP_label_col = []
+    holistic_no_BP_col = []
+    holistic_BP_col = []
+
+    for scene_idx in range(n):
+
+        data_1, labels = next(iter(obj_1_loader))
+        data_2, labels = next(iter(obj_2_loader))
+        data_3, labels = next(iter(obj_3_loader))
+
+        # add the images together to form a scene
+        comb_img = torch.clamp(data_1[0] + data_2[0] + data_3[0], 0, 1).to(device)
+        holistic_comb_img = F.interpolate(comb_img, size=(28, 28), mode='bilinear', align_corners=False)
+
+        activations_1_r = vae.activations(data_1[0], True, None, 'object')
+        activations_2_r = vae.activations(data_2[0], True, None, 'object')
+        activations_3_r = vae.activations(data_3[0], True, None, 'object')
+        activations_1 = vae.activations(data_1[1], False, None, 'object')
+        activations_2 = vae.activations(data_2[1], False, None, 'object')
+        activations_3 = vae.activations(data_3[1], False, None, 'object')
+        activations_1['theta'] = activations_1_r['theta']
+        activations_2['theta'] = activations_2_r['theta']
+        activations_3['theta'] = activations_3_r['theta']
+
+        holistict_activations = vae.activations(holistic_comb_img, False, None, None)
+
+        obj_1, color_1, theta_1 = activations_1['object'], activations_1['color'], activations_1['theta']
+        obj_2, color_2, theta_2 = activations_2['object'], activations_2['color'], activations_2['theta']
+        obj_3, color_3, theta_3 = activations_3['object'], activations_3['color'], activations_3['theta']
+
+        objs = torch.cat([obj_1, obj_2, obj_3], 0)
+        colors = torch.cat([color_1, color_2, color_3], 0)
+        thetas = torch.cat([theta_1, theta_2, theta_3], 0)
+
+        BP_activations = {'object': [objs.view(3, -1), 1],
+                        'color': [colors.view(3, -1), 1]}
+
+        # now store/retrieve from object and color maps
+        BPOut, Tokenbindings = BPTokens_storage(bpsize, bpPortion, BP_activations, 3, normalize_fact_novel)
+        BP_act_out = BPTokens_retrieveByToken(bpsize, bpPortion, BPOut, Tokenbindings, BP_activations, 3, normalize_fact_novel)
+        BP_obj_out = BP_act_out['object']
+        BP_color_out = BP_act_out['color']
+
+        # now store/retrieve via object/color classifications to 1-hot
+        pred_objs = object_classifier.predict(objs.cpu())
+        pred_colors = color_classifier.predict(colors.cpu())
+
+        print([object_names[i] for i in pred_objs])
+        print([colornames[i] for i in pred_colors])
+
+        with open(f'{folder_path}classifier_results.txt', 'a') as f:
+            f.write(str([object_names[i] for i in pred_objs]) + "\n")
+            f.write(str([colornames[i] for i in pred_colors]) + "\n")
+
+        object_oneHot = F.one_hot(torch.tensor(pred_objs), num_classes=s_classes).float().to(device)
+        color_oneHot = F.one_hot(torch.tensor(pred_colors), num_classes=10).float().to(device)
+
+        BP_activations_oneHot = {'object': [object_oneHot.view(3, -1), 1],
+                                'color': [color_oneHot.view(3, -1), 1]}
+
+        BPOut, Tokenbindings = BPTokens_storage(bpsize, bpPortion, BP_activations_oneHot, 3, normalize_fact_novel)
+        BP_act_out = BPTokens_retrieveByToken(bpsize, bpPortion, BPOut, Tokenbindings, BP_activations_oneHot, 3, normalize_fact_novel)
+        BP_obj_out_label = BP_act_out['object']
+        BP_color_out_label = BP_act_out['color']
+
+        # remove noise from BP output by converting back to 1-hot
+        BP_obj_indices = torch.argmax(BP_obj_out_label, dim=-1)
+        BP_color_indices = torch.argmax(BP_color_out_label, dim=-1)
+        BP_obj_out_label = F.one_hot(BP_obj_indices, num_classes=BP_obj_out_label.size(-1)).to(device).float()
+        BP_color_out_label = F.one_hot(BP_color_indices, num_classes=BP_color_out_label.size(-1)).to(device).float()
+
+        obj_from_BP_label = object_label(BP_obj_out_label, 1)
+        color_from_BP_label = color_label(BP_color_out_label, 1)
+        obj_from_label = object_label(object_oneHot, 1)
+        color_from_label = color_label(color_oneHot, 1)
+
+        # holistic BP
+        BP_activations_oneHot = {'l1': [holistict_activations['skip'], 1]}
+
+        BPOut, Tokenbindings = BPTokens_storage(bpsize, bpPortion, BP_activations_oneHot, 1, normalize_fact_novel)
+        BP_act_out = BPTokens_retrieveByToken(bpsize, bpPortion, BPOut, Tokenbindings, BP_activations_oneHot, 1, normalize_fact_novel)
+        BP_l1_out = BP_act_out['l1']
+
+        # reconstruct
+
+        obj_recon_no_BP = vae.decoder_retinal_object(objs, colors, thetas, 0).sum(dim=0, keepdim=True)
+        obj_recon_BP = vae.decoder_retinal_object(BP_obj_out, BP_color_out, thetas, 0).sum(dim=0, keepdim=True)
+        obj_recon_BP_label = vae.decoder_retinal_object(obj_from_BP_label, color_from_BP_label, thetas, 0).sum(dim=0, keepdim=True)
+        obj_recon_label = vae.decoder_retinal_object(obj_from_label, color_from_label, thetas, 0).sum(dim=0, keepdim=True)
+        holistic_BP = vae.decoder_skip_cropped(0, 0, 0, BP_l1_out)
+        holistic_no_BP = vae.decoder_skip_cropped(0, 0, 0, holistict_activations['skip'])
+        holistic_BP = F.interpolate(holistic_BP, size=(64, 64), mode='bilinear', align_corners=False)
+        holistic_no_BP = F.interpolate(holistic_no_BP, size=(64, 64), mode='bilinear', align_corners=False)
+
+        comb_img_col.append(comb_img.view(bs, 3, 64, 64))
+        obj_recon_no_BP_col.append(obj_recon_no_BP.view(bs, 3, 64, 64))
+        obj_recon_BP_col.append(obj_recon_BP.view(bs, 3, 64, 64))
+        obj_recon_label_col.append(obj_recon_label.view(bs, 3, 64, 64))
+        obj_recon_BP_label_col.append(obj_recon_BP_label.view(bs, 3, 64, 64))
+        holistic_no_BP_col.append(holistic_no_BP.view(bs, 3, 64, 64))
+        holistic_BP_col.append(holistic_BP.view(bs, 3, 64, 64))
+
+    # each row is one of the 7 image types; each column is one of the n scenes
+    save_image(
+        torch.cat([torch.cat(comb_img_col, 0), torch.cat(obj_recon_no_BP_col, 0),
+                torch.cat(obj_recon_BP_col, 0), torch.cat(obj_recon_label_col, 0),
+                torch.cat(obj_recon_BP_label_col, 0), torch.cat(holistic_no_BP_col, 0),
+                torch.cat(holistic_BP_col, 0)], 0),
+        f'{folder_path}figure_obj_scene.png', pad_value=0.6,
+        nrow=n, normalize=False)
+
+@torch.no_grad()
+def fig_obj_scene_recon_1(vae: VAE_CNN, object_label, color_label, object_classifier, color_classifier, folder_path: str, load_data: bool = False):
+    pkl_path = f'{folder_path}{log_function_name()}-figure_data.pkl'
+    vae.eval()
+    bpsize = 30000#00         #size of the binding pool
+    token_overlap =0.1
+    bpPortion = int(token_overlap *bpsize) # number binding pool neurons used for each item
+
+    bs = 1
+    device = next(vae.parameters()).device
+    object_label.to(device)
+    quickdraw_target_set = [0,2,8,10,11]
+    obj_1_transforms = {'retina':True, 'colorize':True, 'scale':False, 'target_set': quickdraw_target_set,  'location_targets':{(-1,-1):list(range(0,s_classes+1))}}
+    obj_1_loader = Dataset('quickdraw', obj_1_transforms).get_loader(bs)
+
+    obj_2_transforms = {'retina':True, 'colorize':True, 'scale':False, 'target_set': quickdraw_target_set, 'location_targets':{(-1,1):list(range(0,s_classes+1))}}
+    obj_2_loader = Dataset('quickdraw', obj_2_transforms).get_loader(bs)
+
+    obj_3_transforms = {'retina':True, 'colorize':True, 'scale':False, 'target_set': quickdraw_target_set, 'location_targets':{(1,1):list(range(0,s_classes+1))}}
+    obj_3_loader = Dataset('quickdraw', obj_3_transforms).get_loader(bs)
+
+    data_1, labels = next(iter(obj_1_loader))
+    data_2, labels = next(iter(obj_2_loader))
+    data_3, labels = next(iter(obj_3_loader))
+
+    # add the images together to form a scene
+    comb_img = torch.clamp(data_1[0] + data_2[0] + data_3[0], 0, 1).to(device)
+    holistic_comb_img = F.interpolate(comb_img, size=(28, 28), mode='bilinear', align_corners=False)
+
+    activations_1 = vae.activations(data_1[0], True, None, 'object')
+    activations_2 = vae.activations(data_2[0], True, None, 'object')
+    activations_3 = vae.activations(data_3[0], True, None, 'object')
+    holistict_activations = vae.activations(holistic_comb_img, False, None, None)
+
+    obj_1, color_1, theta_1 = activations_1['object'], activations_1['color'], activations_1['theta']
+    obj_2, color_2, theta_2 = activations_2['object'], activations_2['color'], activations_2['theta']
+    obj_3, color_3, theta_3 = activations_3['object'], activations_3['color'], activations_3['theta']
+
+    objs = torch.cat([obj_1, obj_2, obj_3], 0)
+    colors = torch.cat([color_1, color_2, color_3], 0)
+    thetas = torch.cat([theta_1, theta_2, theta_3], 0)
+
+    BP_activations = {'object': [objs.view(3,-1), 1],
+                      'color': [colors.view(3,-1), 1]}
+
+    #now store/retrieve from object and color maps
+    BPOut, Tokenbindings = BPTokens_storage(bpsize, bpPortion, BP_activations, 3, normalize_fact_novel)
+    BP_act_out = BPTokens_retrieveByToken(bpsize, bpPortion, BPOut, Tokenbindings, BP_activations, 3, normalize_fact_novel)
+    BP_obj_out = BP_act_out['object']
+    BP_color_out = BP_act_out['color']
+
+    # now store/retrieve via object/color classifications to 1-hot
+    pred_objs = object_classifier.predict(objs.cpu())
+    pred_colors = color_classifier.predict(colors.cpu())
+
+    object_oneHot = F.one_hot(torch.tensor(pred_objs), num_classes=s_classes).float().to(device)
+    color_oneHot = F.one_hot(torch.tensor(pred_colors), num_classes=10).float().to(device)
+
+    BP_activations_oneHot = {'object': [object_oneHot.view(3,-1), 1],
+                             'color': [color_oneHot.view(3,-1), 1]}
+
+    BPOut, Tokenbindings = BPTokens_storage(bpsize, bpPortion, BP_activations_oneHot, 3, normalize_fact_novel)
+    BP_act_out = BPTokens_retrieveByToken(bpsize, bpPortion, BPOut, Tokenbindings, BP_activations_oneHot, 3, normalize_fact_novel)
+    BP_obj_out_label = BP_act_out['object']
+    BP_color_out_label = BP_act_out['color']
+
+    obj_from_BP_label = object_label(BP_obj_out_label, 1)
+    color_from_BP_label = color_label(BP_color_out_label, 1)
+    obj_from_label = object_label(object_oneHot, 1)
+    color_from_label = color_label(color_oneHot, 1)
+
+    # holistic BP
+    BP_activations_oneHot = {'l1': [holistict_activations['skip'], 1]}
+    
+    BPOut, Tokenbindings = BPTokens_storage(bpsize, bpPortion, BP_activations_oneHot, 1, normalize_fact_novel)
+    BP_act_out = BPTokens_retrieveByToken(bpsize, bpPortion, BPOut, Tokenbindings, BP_activations_oneHot, 1, normalize_fact_novel)
+    BP_l1_out = BP_act_out['l1']
+
+    # reconstruct
+
+    obj_recon_no_BP = vae.decoder_retinal_object(objs, colors, thetas, 0).sum(dim=0, keepdim=True)
+    obj_recon_BP = vae.decoder_retinal_object(BP_obj_out, BP_color_out, thetas, 0).sum(dim=0, keepdim=True)
+    obj_recon_BP_label = vae.decoder_retinal_object(obj_from_BP_label, color_from_BP_label, thetas, 0).sum(dim=0, keepdim=True)
+    obj_recon_label = vae.decoder_retinal_object(obj_from_label, color_from_label, thetas, 0).sum(dim=0, keepdim=True)
+    holistic_BP = vae.decoder_skip_cropped(0, 0, 0, BP_l1_out)
+    holistic_no_BP = vae.decoder_skip_cropped(0, 0, 0, holistict_activations['skip'])
+    holistic_BP = F.interpolate(holistic_BP, size=(64, 64), mode='bilinear', align_corners=False)
+    holistic_no_BP = F.interpolate(holistic_no_BP, size=(64, 64), mode='bilinear', align_corners=False)
+
+    save_image(
+            torch.cat([comb_img.view(bs, 3, 64, 64), obj_recon_no_BP.view(bs, 3, 64, 64), 
+                       obj_recon_BP.view(bs, 3, 64, 64), obj_recon_label.view(bs, 3, 64, 64), obj_recon_BP_label.view(bs, 3, 64, 64), holistic_no_BP.view(bs, 3, 64, 64), holistic_BP.view(bs, 3, 64, 64)], 0),
+            f'{folder_path}figure_obj_scene.png', pad_value=0.6,
+            nrow=bs, normalize=False)
+
+@torch.no_grad()
+def fig_visual_synthesis_umbrella(vae: VAE_CNN, shape_label, s_classes, object_classifier, folder_path: str, load_data: bool = False):
+    pkl_path = f'{folder_path}{log_function_name()}-figure_data.pkl'
+    #TODO: rotated V in an O to form clock, J under rotated D to form an umbrella
+    if not os.path.exists(folder_path):
+        os.mkdir(folder_path)
     vae.eval()
     bs = 2
-    num1 = 3
-    num2 = 15
+    num1 = 13 # D
+    num2 = 19 # J
+    device = next(vae.parameters()).device
+    shape_label.to(device)
+    num_labels = F.one_hot(torch.tensor([num1, num2]).to(device), num_classes=s_classes).float().to(device) # shape
+    z_shape = shape_label(num_labels, 1)
+
+    recon_crop = vae.decoder_shape(z_shape)
+
+    location = torch.tensor([[0.35, 0.1], [0.0, 0.4]]).view(bs,2).to(device)
+    scale = torch.tensor([[4.4], [1.0]]).view(bs,1).to(device)
+    rotation = torch.tensor([[-3.5], [0.3]]).view(bs,1).to(device)
+    theta = torch.cat([scale, location, rotation], 1)
+    
+    recon = vae.decoder_retinal(z_shape, 0, theta, 'shape')
+
+    img1 = recon[0]
+    img2 = recon[1]
+    comb_img = torch.clamp(img1 + img2, 0, 0.5) * 1.3
+    comb_img = comb_img.view(1,3,64,64)
+
+    activations = vae.activations(comb_img, True, None, 'object')
+
+    pred_ss = object_classifier.predict(activations['object'].cpu())
+    out_pred = pred_ss[0]
+    pred_prob = object_classifier.predict_proba(activations['object'].cpu())
+    class_idx = list(object_classifier.classes_).index(out_pred)
+    out_prob = pred_prob[0][class_idx]
+
+    recon_shape = vae.decoder_object(activations['object'], 0, 0)
+    recon_shape_retinal = vae.decoder_retinal_object(activations['object'], activations['color'], activations['theta'], 0)
+    save_image(comb_img, f'{folder_path}D_P_sim.png')
+    save_image(recon_shape, f'{folder_path}D_P_sim_recon.png')
+    save_image(recon_shape_retinal, f'{folder_path}D_P_sim_recon_retinal.png')
+    save_image(recon_crop, f'{folder_path}D_P_crop_recon.png')
+    save_image(img1, f'{folder_path}D.png')
+    save_image(img2, f'{folder_path}P.png')
+    save_image(activations['stn_out'], f'{folder_path}stn_out.png')
+
+    for cls, prob in zip(object_classifier.classes_, pred_prob[0]):
+        print(f'{object_names[cls]}: {prob:.4f}')
+    print(f'Predicted: {object_names[out_pred]} ({out_prob:.4f})')
+
+    with open(f"{folder_path}results.txt", "w") as f:
+        for cls, prob in zip(object_classifier.classes_, pred_prob[0]):
+            f.write(f'{object_names[cls]}: {prob:.4f}\n')
+        f.write(f'Predicted: {object_names[out_pred]} ({out_prob:.4f})')
+
+@torch.no_grad()
+def fig_visual_synthesis_clock(vae: VAE_CNN, shape_label, s_classes, object_classifier, folder_path: str, load_data: bool = False):
+    pkl_path = f'{folder_path}{log_function_name()}-figure_data.pkl'
+    #TODO: rotated V in an O to form clock, J under rotated D to form an umbrella
+    if not os.path.exists(folder_path):
+        os.mkdir(folder_path)
+    vae.eval()
+    bs = 2
+    num1 = 0 #24
+    num2 = 31
+    device = next(vae.parameters()).device
+    shape_label.to(device)
+    num_labels = F.one_hot(torch.tensor([num1, num2]).to(device), num_classes=s_classes).float().to(device) # shape
+    z_shape = shape_label(num_labels, 1)
+
+    recon_crop = vae.decoder_shape(z_shape)
+
+    location = torch.tensor([[0.0, 0.0], [0.05, 0.0]]).view(bs,2).to(device)
+    scale = torch.tensor([[3.4], [0.5]]).view(bs,1).to(device)
+    rotation = torch.tensor([[-0.4], [0.4]]).view(bs,1).to(device)
+    theta = torch.cat([scale, location, rotation], 1)
+
+    recon = vae.decoder_retinal(z_shape, 0, theta, 'shape')
+
+    img1 = recon[0]
+    img2 = recon[1]
+    comb_img = torch.clamp(img1 + img2, 0, 0.5) * 1.5
+    comb_img = comb_img.view(1,3,64,64)
+
+    activations = vae.activations(comb_img, True, None, 'object')
+
+    pred_ss = object_classifier.predict(activations['object'].cpu())
+    out_pred = pred_ss[0]
+    pred_prob = object_classifier.predict_proba(activations['object'].cpu())
+    class_idx = list(object_classifier.classes_).index(out_pred)
+    out_prob = pred_prob[0][class_idx]
+
+    recon_shape = vae.decoder_object(activations['object'], 0, 0)
+    recon_shape_retinal = vae.decoder_retinal_object(activations['object'], activations['color'], activations['theta'], 0)
+    save_image(comb_img, f'{folder_path}D_P_sim.png')
+    save_image(recon_shape, f'{folder_path}D_P_sim_recon.png')
+    save_image(recon_shape_retinal, f'{folder_path}D_P_sim_recon_retinal.png')
+    save_image(recon_crop, f'{folder_path}D_P_crop_recon.png')
+    save_image(img1, f'{folder_path}D.png')
+    save_image(img2, f'{folder_path}P.png')
+    save_image(activations['stn_out'], f'{folder_path}stn_out.png')
+
+    for cls, prob in zip(object_classifier.classes_, pred_prob[0]):
+        print(f'{object_names[cls]}: {prob:.4f}')
+    print(f'Predicted: {object_names[out_pred]} ({out_prob:.4f})')
+
+    with open(f"{folder_path}results.txt", "w") as f:
+        for cls, prob in zip(object_classifier.classes_, pred_prob[0]):
+            f.write(f'{object_names[cls]}: {prob:.4f}\n')
+        f.write(f'Predicted: {object_names[out_pred]} ({out_prob:.4f})')
+
+@torch.no_grad()
+def fig_visual_synthesis_boat(vae: VAE_CNN, shape_label, s_classes, object_classifier, folder_path: str, load_data: bool = False):
+    pkl_path = f'{folder_path}{log_function_name()}-figure_data.pkl'
+    #TODO: rotated V in an O to form clock, J under rotated D to form an umbrella
+    if not os.path.exists(folder_path):
+        os.mkdir(folder_path)
+    
+    vae.eval()
+    bs = 2
+    num1 = 13
+    num2 = 25
     device = next(vae.parameters()).device
     shape_label.to(device)
     num_labels = F.one_hot(torch.tensor([num1, num2]).to(device), num_classes=s_classes).float().to(device) # shape
@@ -1048,22 +1474,30 @@ def fig_visual_synthesis(vae: VAE_CNN, shape_label, s_classes, object_classifier
 
     activations = vae.activations(comb_img, True, None, 'object')
 
-    pred_ss = object_classifier.predict(activations['shape'].cpu())
+    pred_ss = object_classifier.predict(activations['object'].cpu())
     out_pred = pred_ss[0]
-    pred_prob = object_classifier.predict_proba(activations['shape'].cpu())
+    pred_prob = object_classifier.predict_proba(activations['object'].cpu())
     class_idx = list(object_classifier.classes_).index(out_pred)
     out_prob = pred_prob[0][class_idx]
 
-    recon_shape = vae.decoder_object(activations['shape'], 0, 0)
+    recon_shape = vae.decoder_object(activations['object'], 0, 0)
+    recon_shape_retinal = vae.decoder_retinal_object(activations['object'], activations['color'], activations['theta'], 0)
     save_image(comb_img, f'{folder_path}D_P_sim.png')
     save_image(recon_shape, f'{folder_path}D_P_sim_recon.png')
+    save_image(recon_shape_retinal, f'{folder_path}D_P_sim_recon_retinal.png')
     save_image(recon_crop, f'{folder_path}D_P_crop_recon.png')
     save_image(img1, f'{folder_path}D.png')
     save_image(img2, f'{folder_path}P.png')
+    save_image(activations['stn_out'], f'{folder_path}stn_out.png')
 
     for cls, prob in zip(object_classifier.classes_, pred_prob[0]):
         print(f'{object_names[cls]}: {prob:.4f}')
     print(f'Predicted: {object_names[out_pred]} ({out_prob:.4f})')
+
+    with open(f"{folder_path}results.txt", "w") as f:
+        for cls, prob in zip(object_classifier.classes_, pred_prob[0]):
+            f.write(f'{object_names[cls]}: {prob:.4f}\n')
+        f.write(f'Predicted: {object_names[out_pred]} ({out_prob:.4f})')
 
 def build_gen_grid(joint_recons, shape_recons, color_recons, n):
     grid_rows = []
@@ -1092,7 +1526,166 @@ def build_gen_grid(joint_recons, shape_recons, color_recons, n):
 
     # concat vertically
     return torch.cat(grid_rows, dim=1)
+
+def rgb_to_lab_norm(imgs_rgb: torch.Tensor,
+                    l_min: float = 50,
+                    l_max: float = 70) -> torch.Tensor:
+    """
+    Convert (B, 3, H, W) RGB in [0,1] to normalized Lab in [0,1].
+    L* normalized using the same [l_min, l_max] range as the dataloader.
+    a*, b* normalized over [-128, 127] (full Lab gamut).
+    returns: (B, 3, H, W)
+    """
+    linear = torch.where(
+        imgs_rgb <= 0.04045,
+        imgs_rgb / 12.92,
+        ((imgs_rgb + 0.055) / 1.055) ** 2.4,
+    )
+
+    X = (0.4124564 * linear[:, 0] +
+         0.3575761 * linear[:, 1] +
+         0.1804375 * linear[:, 2]).unsqueeze(1)
+    Y = (0.2126729 * linear[:, 0] +
+         0.7151522 * linear[:, 1] +
+         0.0721750 * linear[:, 2]).unsqueeze(1)
+    Z = (0.0193339 * linear[:, 0] +
+         0.1191920 * linear[:, 1] +
+         0.9503041 * linear[:, 2]).unsqueeze(1)
+
+    X = X / 0.95047
+    Z = Z / 1.08883
+
+    delta = 6.0 / 29.0
+    def f(t):
+        return torch.where(t > delta ** 3,
+                           t.pow(1.0 / 3.0),
+                           t / (3 * delta ** 2) + 4.0 / 29.0)
+
+    fx, fy, fz = f(X), f(Y), f(Z)
+
+    L     = 116.0 * fy - 16.0          # [0, 100]
+    a_star = 500.0 * (fx - fy)         # [-128, 127] approx
+    b_star = 200.0 * (fy - fz)
+
+    # Normalize L* using dataloader range — same mapping as Colorize_specific
+    L_norm = ((L - l_min) / (l_max - l_min)).clamp(0.0, 1.0)
+    a_norm = ((a_star + 128.0) / 255.0).clamp(0.0, 1.0)
+    b_norm = ((b_star + 128.0) / 255.0).clamp(0.0, 1.0)
+
+    return torch.cat([L_norm, a_norm, b_norm], dim=1)   # (B, 3, H, W)
+
+def visualize_color_objective(imgs, imgsize,
+                               l_min: float = 50,
+                               l_max: float = 70):
+    """
+    imgs : (B, 3, H, W) in [0,1]
+    returns : (B, 3, H, W) in [0,1] — flat-color patch using mean Lab
+    """
+    B = imgs.shape[0]
+    imgs = imgs.view(B, 3, imgsize, imgsize)
+
+    brightness = imgs.max(dim=1, keepdim=True).values
+    mask = (brightness > 0.15).float()
+    fg_count = mask.sum(dim=[2, 3], keepdim=True).clamp(min=1)
+
+    lab = rgb_to_lab_norm(imgs, l_min, l_max)                          # (B, 3, H, W)
+    mean_lab = (lab * mask).sum(dim=[2, 3], keepdim=True) / fg_count   # (B, 3, 1, 1)
+    flat_lab = mean_lab.expand(B, 3, imgsize, imgsize)                 # (B, 3, H, W)
+
+    # Denormalize back to raw Lab for conversion
+    L      = flat_lab[:, 0:1] * (l_max - l_min) + l_min   # [l_min, l_max]
+    a_star = flat_lab[:, 1:2] * 255.0 - 128.0
+    b_star = flat_lab[:, 2:3] * 255.0 - 128.0
+
+    # Lab -> XYZ
+    fy = (L + 16.0) / 116.0
+    fx = a_star / 500.0 + fy
+    fz = fy - b_star / 200.0
+
+    delta = 6.0 / 29.0
+    def f_inv(t):
+        return torch.where(t > delta,
+                           t ** 3,
+                           3 * delta ** 2 * (t - 4.0 / 29.0))
+
+    X = f_inv(fx) * 0.95047
+    Y = f_inv(fy)
+    Z = f_inv(fz) * 1.08883
+
+    M_inv = torch.tensor([
+        [ 3.2404542, -1.5371385, -0.4985314],
+        [-0.9692660,  1.8760108,  0.0415560],
+        [ 0.0556434, -0.2040259,  1.0572252],
+    ], dtype=imgs.dtype, device=imgs.device)
+
+    xyz = torch.cat([X, Y, Z], dim=1).view(B, 3, -1)
+    rgb_linear = torch.einsum('cd,bdp->bcp', M_inv, xyz).view(B, 3, imgsize, imgsize).clamp(0, 1)
+
+    rgb = torch.where(
+        rgb_linear <= 0.0031308,
+        rgb_linear * 12.92,
+        1.055 * rgb_linear.pow(1.0 / 3.0) - 0.055,
+    )
+    return rgb.clamp(0.0, 1.0)
+
+@torch.no_grad()
+def functionality_test(vae: VAE_CNN, shape_label, s_classes, color_label, c_classes, folder_path: str):
+    vae.eval()
+    #vae.skip_bn.train()
+    device = next(vae.parameters()).device
+    emnist_targetset = [2, 3, 12, 15, 25]
+    mnist_transforms = {'retina':True, 'colorize':True, 'rotate':False, 'scale':True} #, 'target_set':emnist_targetset}
+    emnist_loader= Dataset('square', mnist_transforms).get_loader(50)
     
+    dataiter_emnist = iter(emnist_loader)
+    data, labels = next(dataiter_emnist)
+    data = data[1].cuda()
+    sample_size = 25
+    sample = data[:sample_size].to(device)   #the actual image
+
+
+    # color label testing
+    x = sample
+    target = visualize_color_objective(x, imgsize, 50, 70)
+    # END COLOR LABELS
+    name = ''
+    vae.dropout.p = 0
+    #sample = data[:sample_size].to(device)   #the actual image
+    with torch.no_grad():
+        if 'quickdraw' in name:
+            recon, _, _, _, _, _, _ = vae(sample, 'cropped_object', ['object', 'color'])
+            shape, _, _, _, _, _, _ = vae(sample, 'object', ['object'])
+        else:
+            recon, _, _, _, _, _, _ = vae(sample, 'cropped', ['shape', 'color'])
+            shape, _, _, _, _, _, _ = vae(sample, 'shape', ['shape'])
+        color, _, _, _, _, _, _ = vae(sample, 'color', ['color'])
+        skip, _, _, _, _, _, _ = vae(sample, 'skip_cropped', ['skip'])
+
+    vae.dropout.p = 0.1 
+     
+    output_img = torch.cat([sample.view(sample_size, 3, imgsize, imgsize)[:25], recon.view(sample_size, 3, imgsize, imgsize)[:25], skip.view(sample_size, 3, imgsize, imgsize)[:25],
+                       shape.view(sample_size, 3, imgsize, imgsize)[:25], color.view(sample_size, 3, imgsize, imgsize)[:25], target.view(sample_size, 3, imgsize, imgsize)[:25]], 0)
+     
+    rows = 6;    
+    #print(sample_size)
+    #this next bit collapses the long image into a stack of rows so that the text can be added
+    #convert the sample_size*rows x 3 x 28 x 28 tensor into a  stack that is now 3 x rows*28 x sample_size*28
+    output_img2 = output_img.view(rows,sample_size,3,28,28)
+    output_img2 = output_img2.permute(0,2,3,1,4).contiguous().view(rows,3,28,sample_size*28)
+    output_img2 = output_img2.permute(1,0,2,3).contiguous().view(3,rows*28,sample_size*28)
+
+    channels, height, width = output_img2.shape
+    header_height = 20            
+    # Create new tensor with extra height for text
+    new_height = height + header_height
+    new_tensor = torch.ones(channels, new_height, width) * 0.8  # Light gray background
+    new_tensor[:, header_height:, :] = output_img2
+    text_tensor = text_to_tensor("Image / both maps recon / skip recon / shape recon/color recon / color objective ",header_height,width)
+    new_tensor[:, :header_height, :] = text_tensor
+    save_image(new_tensor,f'{folder_path}cropped_sample_{name}.png',
+            nrow=1, normalize=False)
+
+
 
 @torch.no_grad()
 def fig_generative_noise(vae: VAE_CNN, shape_label, s_classes, color_label, c_classes, folder_path: str, load_data: bool = False):
@@ -1103,33 +1696,32 @@ def fig_generative_noise(vae: VAE_CNN, shape_label, s_classes, color_label, c_cl
         print("generative noise plot")
         bs = 2
         x, y= 5, 5
-        num1 = 1
-        num2 = 6
+        num1 = 35
+        num2 = 25
         device = next(vae.parameters()).device
         shape_label.to(device)
         num_labels = F.one_hot(torch.tensor([num1, num2]).to(device), num_classes=s_classes).float().to(device) # shape
-        col_labels = F.one_hot(torch.tensor([1, num2]).to(device), num_classes=c_classes).float().to(device) # color
+        col_labels = F.one_hot(torch.tensor([1, 0]).to(device), num_classes=c_classes).float().to(device) # color
         print(num_labels.size())
-        z_shape_0 = shape_label(num_labels, 1)[0]
-        z_color_0 = color_label(col_labels, 1)[0]
+        z_shapes = shape_label(num_labels, 1)
+        z_colors = color_label(col_labels, 1)
 
         # shape / color noising x: shape, y: color
-        recon_crop = vae.decoder_cropped(z_shape_0, z_color_0)
+        recon_crop = vae.decoder_cropped(z_shapes[0], z_colors[0])
         shape_color_base = recon_crop[0]
 
         shape_recons = []
         color_recons = []
         joint_recons = [shape_color_base]
 
-        z_shape = z_shape_0.clone()
-        z_color = z_color_0.clone()
-        n = 9
-        for _ in range(0,n):
-            z_shape = z_shape + (0.5 * torch.randn_like(z_shape_0))
-            z_color = z_color + (1 * torch.randn_like(z_color_0))
-
-            recon_shape_m = vae.decoder_cropped(z_shape, z_color_0)
-            recon_color_m = vae.decoder_cropped(z_shape_0, z_color)
+        z_shape = z_shapes[0].clone()
+        z_color = z_colors[0].clone()
+        n = 10
+        for i in range(0,n):
+            z_shape = z_shape + 0.999 * ((1)/n) * (z_shapes[1] - z_shapes[0]) + (0.0 * torch.randn_like(z_shape))
+            z_color = z_color + 0.99 * ((1)/n) * (z_colors[1] - z_colors[0]) + (0.2 * torch.randn_like(z_color))
+            recon_shape_m = vae.decoder_cropped(z_shape, z_colors[0])
+            recon_color_m = vae.decoder_cropped(z_shapes[0], z_color)
             recon_crop_m = vae.decoder_cropped(z_shape, z_color)
 
             shape_recons += [recon_shape_m]

@@ -11,7 +11,7 @@ import sys
 
 from sklearn.manifold import TSNE
 
-from MLR_src.mVAE import load_checkpoint, load_dimensions
+from MLR_src.mVAE import load_checkpoint, load_dimensions, VAE_CNN
 from MLR_src.dataset_builder import Dataset
 from training_constants import training_components, training_datasets
 from itertools import cycle
@@ -59,10 +59,11 @@ for component in args.components:
             dataloaders[dataset_name] = iter(loader)
 
 # collect latent activations and images
-def collect_latents(vae, dataloaders, component, n_samples, use_mu=True):
+def collect_latents(vae: VAE_CNN, dataloaders, component, n_samples, use_mu=True):
     """Collect latent vectors, labels, and cropped images for a given component"""
-    dataset_name = training_components[component][0][0]
-    dataloader = dataloaders[dataset_name]
+    dataset_names = training_components[component][0]
+    # use all datasets per component
+    dataloaders = cycle([dataloaders[dataset_name] for dataset_name in dataset_names])
     
     all_latents = []
     all_shape_labels = []
@@ -71,41 +72,42 @@ def collect_latents(vae, dataloaders, component, n_samples, use_mu=True):
     collected = 0
 
     while collected < n_samples:
+        dataloader = next(dataloaders)
         data, labels = next(dataloader)
         if type(data) == list:
-            image = data[1].to(device)
+            cropped_image = data[1].to(device)
+            retinal_image = data[0].to(device)
         else:
             image = data.to(device)
 
         # store raw image tensors for centroid visualization
-        all_images.append(image.cpu())
+        all_images.append(cropped_image.cpu())
 
         with torch.no_grad():
-            if component == 'object':
-                mu_object, log_var_object = vae.encoder_object(image)
-                mu = mu_object
-                log_var = log_var_object
-            elif component == 'shape':
-                mu_shape, log_var_shape, mu_color, log_var_color, hskip = vae.encoder(image)
-                mu = mu_shape
-                log_var = log_var_shape
-            elif component == 'color':
-                mu_shape, log_var_shape, mu_color, log_var_color, hskip = vae.encoder(image)
-                mu = mu_color
-                log_var = log_var_color
-            else:
-                print(f"Unknown component: {component}")
-                return None, None, None, None
+            cropped_activations = vae.activations(cropped_image, False)
+            cropped_shape_latent = cropped_activations['shape']
+            cropped_color_latent = cropped_activations['color']
+            cropped_object_latent = cropped_activations['object']
 
-            if use_mu:
-                z = mu
-            else:
-                z = vae.sampling(mu, log_var)
+            retinal_activations = vae.activations(retinal_image, True)
+            retinal_shape_latent = retinal_activations['shape']
+            retinal_color_latent = retinal_activations['color']
+            retinal_object_latent = retinal_activations['object']
 
+        if component == 'object':
+            z = cropped_object_latent # torch.cat([cropped_object_latent, retinal_object_latent], 0) 
+        elif component == 'shape':
+            z = cropped_shape_latent#torch.cat([cropped_shape_latent, retinal_shape_latent], 0)
+        elif component == 'color':
+            z = cropped_color_latent#torch.cat([cropped_color_latent, retinal_color_latent], 0)
+        else:
+            print(f"Unknown component: {component}")
+            return None, None, None, None
+        
         all_latents.append(z.cpu().numpy())
         all_shape_labels.append(labels[0].numpy())
         all_color_labels.append(labels[1].numpy())
-        collected += len(image)
+        collected += len(cropped_image)
 
     latents = np.concatenate(all_latents, axis=0)[:n_samples]
     shape_labels = np.concatenate(all_shape_labels, axis=0)[:n_samples]
@@ -116,7 +118,10 @@ def collect_latents(vae, dataloaders, component, n_samples, use_mu=True):
 
 
 # label name maps for readability
-emnist_label_names = {i: chr(58 + i) for i in range(0, 26)}  # 10=A, 11=B, ... 35=Z
+emnist_label_names = {0: '0', 1: '1', 2: '2', 3: '3', 4: '4', 5: '5', 6: '6', 7: '7', 8: '8', 9: '9',
+                       10: 'A', 11: 'B', 12: 'C', 13: 'D', 14: 'E', 15: 'F', 16: 'G', 17: 'H', 18: 'I', 19: 'J',
+                       20: 'K', 21: 'L', 22: 'M', 23: 'N', 24: 'O', 25: 'P', 26: 'Q', 27: 'R', 28: 'S', 29: 'T',
+                       30: 'U', 31: 'V', 32: 'W', 33: 'X', 34: 'Y', 35: 'Z', 56: 'square'}
 color_label_names = {0: 'red', 1: 'green', 2: 'blue', 3: 'purple', 4: 'yellow',
                      5: 'cyan', 6: 'orange', 7: 'brown', 8: 'pink', 9: 'white'}
 

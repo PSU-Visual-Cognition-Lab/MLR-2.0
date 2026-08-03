@@ -20,7 +20,7 @@ mnist-skip
 
 def train_classifiers(dataloaders, vae, checkpoint_folder):
 
-    '''    print('training emnist data on color map using color labels')   #this should be high
+    print('training emnist data on color map using color labels')   #this should be high
     clf_ecc = classifier_train(vae, 'color', dataloaders['emnist-map'], 'color')
     dump(clf_ecc, f'checkpoints/{checkpoint_folder}/ecc.joblib')
     pred_ecc, ecc_report = classifier_test(vae, 'color', clf_ecc, dataloaders['emnist-map'],'emnist','color', 1)
@@ -34,7 +34,7 @@ def train_classifiers(dataloaders, vae, checkpoint_folder):
     clf_mss = classifier_train(vae, 'shape', dataloaders['mnist-map'], 'shape')
     dump(clf_mss, f'checkpoints/{checkpoint_folder}/mss.joblib')
     pred_mss, mss_report = classifier_test(vae, 'shape', clf_mss, dataloaders['mnist-map'],'mnist','shape', 1)
-    '''
+    
     print('training object data on OBJECT map using object labels')  #this should be high if object latent is working
     clf_ooo = classifier_train(vae, 'object', dataloaders['quickdraw-map'],'object')
     dump(clf_ooo, f'checkpoints/{checkpoint_folder}/ooo.joblib')
@@ -49,6 +49,30 @@ def train_classifiers(dataloaders, vae, checkpoint_folder):
     clf_oco = classifier_train(vae, 'color', dataloaders['quickdraw-map'],'object')
     dump(clf_oco, f'checkpoints/{checkpoint_folder}/oco.joblib')
     pred_oco, oco_report = classifier_test(vae, 'color', clf_oco, dataloaders['quickdraw-map'],'quickdraw','object' ,1)
+
+     # --- NEW: emnist shape from color (should be low - color map shouldn't encode shape) ---
+    print('training emnist data on color map using shape labels')   #this should be low
+    clf_ecs = classifier_train(vae, 'color', dataloaders['emnist-map'], 'shape')
+    dump(clf_ecs, f'checkpoints/{checkpoint_folder}/ecs.joblib')
+    pred_ecs, ecs_report = classifier_test(vae, 'color', clf_ecs, dataloaders['emnist-map'], 'emnist', 'shape', 1)
+
+    # --- NEW: emnist color from shape (should be low - shape map shouldn't encode color) ---
+    print('training emnist data on shape map using color labels')   #this should be low
+    clf_esc = classifier_train(vae, 'shape', dataloaders['emnist-map'], 'color')
+    dump(clf_esc, f'checkpoints/{checkpoint_folder}/esc.joblib')
+    pred_esc, esc_report = classifier_test(vae, 'shape', clf_esc, dataloaders['emnist-map'], 'emnist', 'color', 1)
+
+    # --- NEW: object from color (should be low - color map shouldn't encode object identity) ---
+    print('training object data on color map using object labels')   #this should be low
+    clf_eco = classifier_train(vae, 'color', dataloaders['quickdraw-map'], 'object')
+    dump(clf_eco, f'checkpoints/{checkpoint_folder}/eco.joblib')
+    pred_eco, eco_report = classifier_test(vae, 'color', clf_eco, dataloaders['quickdraw-map'], 'quickdraw', 'object', 1)
+
+    # --- NEW: color from object (should be low - object map shouldn't encode color) ---
+    print('training object data on object map using color labels')   #this should be low
+    clf_ooc = classifier_train(vae, 'object', dataloaders['quickdraw-map'], 'color')
+    dump(clf_ooc, f'checkpoints/{checkpoint_folder}/ooc.joblib')
+    pred_ooc, ooc_report = classifier_test(vae, 'object', clf_ooc, dataloaders['quickdraw-map'], 'quickdraw', 'color', 1)
 
     # ==================== DIAGNOSTIC CROSS-DECODING TESTS ====================
     # These tests check whether object identity leaks into the shape latent
@@ -72,6 +96,11 @@ def train_classifiers(dataloaders, vae, checkpoint_folder):
     print(f'Object from OBJECT map  (should be HIGH): {ooo_report:.4f}')
     print(f'Object from SHAPE map   (should be LOW):  {oso_report:.4f}')
     print(f'Letters from OBJECT map (should be LOW):  {eos_report:.4f}')
+    
+    print(f'Color from SHAPE map   (should be LOW):  {ecs_report:.4f}')
+    print(f'Color from OBJECT map (should be LOW):  {eco_report:.4f}')
+    print(f'Shape from Color map   (should be LOW):  {esc_report:.4f}')
+    print(f'Object from Color map (should be LOW):  {ooc_report:.4f}') #
     print('=====================================')
 
 
@@ -88,9 +117,18 @@ def classifier_train(vae, whichcomponent, train_dataset, whichlabel):
 
     device = next(vae.parameters()).device
     with torch.no_grad():
-        data, labels = next(iter(train_dataset))
-        data = data[1]
-        train_labels = labels[labelindex].clone()
+        data = []
+        labels = []
+        for _ in range(5):
+            sample_data, sample_labels = next(iter(train_dataset))
+            sample_data = sample_data[1]
+            sample_labels = sample_labels[labelindex].clone()
+            data.append(sample_data)
+            labels.append(sample_labels)
+
+        data = torch.cat(data, dim=0)
+        train_labels = torch.cat(labels, dim=0)
+        #train_labels = labels[labelindex].clone()
         utils.save_image(data[0:10], 'train_sample.png')
         data = data.to(device)
         activations = vae.activations(data, False, None)

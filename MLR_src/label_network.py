@@ -13,13 +13,14 @@ import os
 from PIL import Image, ImageOps, ImageEnhance, __version__ as PILLOW_VERSION
 from joblib import dump, load
 import copy
+from MLR_src.mVAE import batch_samples
 
 
 bs = 100
-s_classes = 36
+s_classes = 62
 c_classes = 10
 
-def train_labelnet(dataloaders, vae, epoch_count, z_dim, checkpoint_folder, trained_components):
+def train_labelnet(dataloaders, vae, epoch_count, shape_z_dim, color_z_dim, object_z_dim, checkpoint_folder, trained_components):
     if not os.path.exists('training_samples/'):
         os.mkdir('training_samples/')
     
@@ -30,9 +31,9 @@ def train_labelnet(dataloaders, vae, epoch_count, z_dim, checkpoint_folder, trai
     if not os.path.exists(sample_folder_path):
         os.mkdir(sample_folder_path)
     
-    vae_shape_labels= VAEshapelabels(xlabel_dim=s_classes, hlabel_dim=20,  zlabel_dim=z_dim)
-    vae_object_labels= VAEshapelabels(xlabel_dim=s_classes, hlabel_dim=20,  zlabel_dim=z_dim)
-    vae_color_labels= VAEcolorlabels(xlabel_dim=10, hlabel_dim=7,  zlabel_dim=z_dim)
+    vae_shape_labels= VAEshapelabels(xlabel_dim=s_classes, hlabel_dim=20,  zlabel_dim=shape_z_dim)
+    vae_object_labels= VAEshapelabels(xlabel_dim=s_classes, hlabel_dim=20,  zlabel_dim=object_z_dim)
+    vae_color_labels= VAEcolorlabels(xlabel_dim=c_classes, hlabel_dim=7,  zlabel_dim=color_z_dim)
 
     optimizer_shapelabels= optim.Adam(vae_shape_labels.parameters())
     optimizer_colorlabels= optim.Adam(vae_color_labels.parameters())
@@ -51,8 +52,8 @@ def train_labelnet(dataloaders, vae, epoch_count, z_dim, checkpoint_folder, trai
         label_net, optimizer = label_nets[whichcomponent]
         for epoch in range (1,epoch_count):
             #train_labels(vae, label_net, whichcomponent, epoch, train_loader, optimizer, folder_path):
-            whichloader =  training_components[whichcomponent][0][0] 
-            train_labels(vae, label_net, whichcomponent, epoch, dataloaders[whichloader], optimizer, sample_folder_path)
+            whichloaders =  training_components[whichcomponent][0]
+            train_labels(vae, label_net, whichcomponent, epoch, whichloaders, dataloaders, optimizer, sample_folder_path)
             
     checkpoint =  {
             'state_dict_shape_labels': vae_shape_labels.state_dict(),
@@ -62,7 +63,9 @@ def train_labelnet(dataloaders, vae, epoch_count, z_dim, checkpoint_folder, trai
             'optimizer_color': optimizer_colorlabels.state_dict(),
             'optimizer_object': optimizer_objectlabels.state_dict(),
 
-            'z_dim': z_dim
+            'shape_z_dim': shape_z_dim,
+            'color_z_dim': color_z_dim,
+            'object_z_dim': object_z_dim
                 }
     torch.save(checkpoint, f'checkpoints/{checkpoint_folder}/label_network_checkpoint.pth')
 
@@ -124,10 +127,10 @@ def load_checkpoint_labels(filepath, label_type, d=0):
         device = 'cpu'
 
     checkpoint = torch.load(filepath)
-    if 'z_dim' not in checkpoint:
+    if f'{label_type}_z_dim' not in checkpoint:
         z_dim = 8
     else:
-        z_dim = checkpoint['z_dim']
+        z_dim = checkpoint[f'{label_type}_z_dim']
 
     label_net_dict = {"shape":VAEshapelabels(xlabel_dim=s_classes, hlabel_dim=20,  zlabel_dim=z_dim), 
                       "object": VAEshapelabels(xlabel_dim=s_classes, hlabel_dim=20,  zlabel_dim=z_dim),
@@ -147,7 +150,7 @@ def loss_label(label_act,image_act):
 
     return e
 
-def train_labels(vae, label_net, whichcomponent, epoch, train_loader, optimizer, folder_path):    
+def train_labels(vae, label_net, whichcomponent, epoch, whichloaders, train_loader, optimizer, folder_path):    
     device = next(vae.parameters()).device
     vae.eval()
     train_loss = 0
@@ -157,14 +160,17 @@ def train_labels(vae, label_net, whichcomponent, epoch, train_loader, optimizer,
     dataiter = train_loader
 
     max_iter = 100
-    for i ,j  in enumerate(train_loader):  # j is not used but it needs to be here
+    for i, _  in enumerate(range(max_iter+1)):
         optimizer.zero_grad()
 
-        image, labels = next(dataiter)
+        #image, labels = next(dataiter)
+        image, labels = batch_samples(whichloaders, train_loader, whichcomponent, False)
+        image.to(device)
         labels_for_shape=labels[0].clone() # shape or object, depending on dataset
         labels_for_color=labels[1].clone()
               
-        image = image[1].cuda() # dataset must be retinal for this(?)
+        #image = image[1].cuda() # dataset must be retinal for this(?)
+        batch_size = image.size(0)
 
         if whichcomponent == 'color':
             labels_color = labels_for_color  # get the color label from the dataloader
@@ -203,10 +209,10 @@ def train_labels(vae, label_net, whichcomponent, epoch, train_loader, optimizer,
         #loss_of_labels = loss_label(z_label, z_actual)   #compute the error
 
         if whichcomponent == 'object':
-            recon_from_label = vae.decoder_object(z_label)
+            recon_from_label = vae.decoder_object(z_label).to(device)
             # compare against grayscale target (same as loss_function_shape does)
             x_gray = image.view(-1, 3, 28, 28).mean(1)
-            x_gray = torch.stack([x_gray, x_gray, x_gray], dim=1)
+            x_gray = torch.stack([x_gray, x_gray, x_gray], dim=1).to(device)
             loss_of_labels = F.binary_cross_entropy(recon_from_label.view(-1, 28*28*3), x_gray.view(-1, 28*28*3), reduction='sum')
         else:
             loss_of_labels = loss_label(z_label, z_actual)
@@ -238,10 +244,10 @@ def train_labels(vae, label_net, whichcomponent, epoch, train_loader, optimizer,
                 feature_recon_label = feature_decoder(z_label)
 
 
-                sample_size = 20
-                orig_imgs = image[:sample_size]
-                feature_recon = feature_recon[:sample_size] 
-                feature_recon_label = feature_recon_label[:sample_size]
+                sample_size = batch_size if batch_size < 30 else 30
+                orig_imgs = image[:sample_size].to(device)
+                feature_recon = feature_recon[:sample_size].to(device)
+                feature_recon_label = feature_recon_label[:sample_size].to(device)
 
             output_img = torch.cat(
                     [orig_imgs,
@@ -249,6 +255,7 @@ def train_labels(vae, label_net, whichcomponent, epoch, train_loader, optimizer,
                      feature_recon_label.view(sample_size, 3, 28, 28)
                      ], 0)
             rows = 3
+            #print(type(output_img))
             #this next bit collapses the long image into a stack of rows so that the text can be added
             #convert the sample_size*rows x 3 x 28 x 28 tensor into a  stack that is now 3 x rows*28 x sample_size*28
             output_img2 = output_img.view(rows,sample_size,3,28,28)
@@ -272,128 +279,3 @@ def train_labels(vae, label_net, whichcomponent, epoch, train_loader, optimizer,
         if i > max_iter + 1:
             break
     print(f'====> Epoch: {epoch} Average loss {whichcomponent}: {train_loss}')
-
-
-    
-# not working VVV
-def test_outputs(test_loader, n = 0.5):
-        vae_shape_labels.eval()
-        vae_color_labels.eval()
-        vae.eval()
-
-        dataiter = iter(test_loader)
-        image, labels = dataiter.next()
-        labels_for_shape=labels[0].clone()
-        labels_for_color=labels[1].clone()
-              
-        image = image.cuda()
-        labels_shape = labels_for_shape.cuda()
-        input_oneHot = F.one_hot(labels_shape, num_classes=s_classes) # 47 classes in emnist, 10 classes in f-mnist
-        input_oneHot = input_oneHot.float()
-        input_oneHot = input_oneHot.cuda()
-
-        labels_color = labels_for_color  # get the color labels
-        labels_color = labels_color.cuda()
-        color_oneHot = F.one_hot(labels_color, num_classes=10)
-        color_oneHot = color_oneHot.float()
-        color_oneHot = color_oneHot.cuda()
-        
-        n=1
-        z_shape_label = vae_shape_labels(input_oneHot,n)
-        z_color_label = vae_color_labels(color_oneHot)
-
-        z_shape, z_color, z_location = image_activations(image)
-
-        with torch.no_grad():
-                recon_imgs = vae.decoder_cropped(z_shape, z_color,0,0)
-                recon_imgs_shape = vae.decoder_shape(z_shape, z_color,0)
-                recon_imgs_color = vae.decoder_color(z_shape, z_color,0)
-
-                recon_labels = vae.decoder_cropped(z_shape_label, z_color_label,0,0)
-                recon_shapeOnly = vae.decoder_shape(z_shape_label, 0,0)
-                recon_colorOnly = vae.decoder_color(0, z_color_label,0)
-
-                sample_size = 20
-                orig_imgs = image[:sample_size]
-                recon_labels = recon_labels[:sample_size]
-                recon_imgs = recon_imgs[:sample_size]
-                recon_imgs_shape = recon_imgs_shape[:sample_size]
-                recon_imgs_color = recon_imgs_color[:sample_size]
-                recon_shapeOnly = recon_shapeOnly[:sample_size]
-                recon_colorOnly = recon_colorOnly[:sample_size]
-
-        utils.save_image(
-                torch.cat(
-                    [orig_imgs,
-                     recon_imgs.view(sample_size, 3, 28, 28),
-                     recon_imgs_shape.view(sample_size, 3, 28, 28),
-                     recon_imgs_color.view(sample_size, 3, 28, 28),
-                     recon_labels.view(sample_size, 3, 28, 28),
-                     recon_shapeOnly.view(sample_size, 3, 28, 28),
-                     recon_colorOnly.view(sample_size, 3, 28, 28)], 0),
-                f'sample_training_labels/labeltest_with_{n}.png',
-                nrow=sample_size,
-                normalize=False,
-                range=(-1, 1),
-            )
-
-def test_opposite_colors(test_loader, n = 0.5):
-        vae_shape_labels.eval()
-        vae_color_labels.eval()
-        vae.eval()
-
-        dataiter = iter(test_loader)
-        image, labels = dataiter.next()
-        labels_for_shape=labels[0].clone()
-        labels_for_color=labels[1].clone()
-              
-        image = image.cuda()
-        labels_shape = labels_for_shape.cuda()
-        input_oneHot = F.one_hot(labels_shape, num_classes=s_classes) # 47 classes in emnist, 10 classes in f-mnist
-        input_oneHot = input_oneHot.float()
-        input_oneHot = input_oneHot.cuda()
-
-        labels_color = labels_for_color  # get the color labels
-        labels_color = labels_color.cuda()
-        color_oneHot = F.one_hot(labels_color, num_classes=10)
-        color_oneHot = color_oneHot.float()
-        color_oneHot = color_oneHot.cuda()
-        
-        n=1
-        z_shape_label = vae_shape_labels(input_oneHot,n)
-        z_color_label = vae_color_labels(color_oneHot)
-
-        z_shape, z_color, z_location = image_activations(image)
-
-        with torch.no_grad():
-                recon_imgs = vae.decoder_cropped(z_shape, z_color,0,0)
-                recon_imgs_shape = vae.decoder_shape(z_shape, z_color,0)
-                recon_imgs_color = vae.decoder_color(z_shape, z_color,0)
-
-                recon_labels = vae.decoder_cropped(z_shape_label, z_color_label,0,0)
-                recon_shapeOnly = vae.decoder_shape(z_shape_label, 0,0)
-                recon_colorOnly = vae.decoder_color(0, z_color_label,0)
-
-                sample_size = 20
-                orig_imgs = image[:sample_size]
-                recon_labels = recon_labels[:sample_size]
-                recon_imgs = recon_imgs[:sample_size]
-                recon_imgs_shape = recon_imgs_shape[:sample_size]
-                recon_imgs_color = recon_imgs_color[:sample_size]
-                recon_shapeOnly = recon_shapeOnly[:sample_size]
-                recon_colorOnly = recon_colorOnly[:sample_size]
-
-        utils.save_image(
-                torch.cat(
-                    [orig_imgs,
-                     recon_imgs.view(sample_size, 3, 28, 28),
-                     recon_imgs_shape.view(sample_size, 3, 28, 28),
-                     recon_imgs_color.view(sample_size, 3, 28, 28),
-                     recon_labels.view(sample_size, 3, 28, 28),
-                     recon_shapeOnly.view(sample_size, 3, 28, 28),
-                     recon_colorOnly.view(sample_size, 3, 28, 28)], 0),
-                f'sample_training_labels_red_green/opposite_color_test.png',
-                nrow=sample_size,
-                normalize=False,
-                range=(-1, 1),
-            )
