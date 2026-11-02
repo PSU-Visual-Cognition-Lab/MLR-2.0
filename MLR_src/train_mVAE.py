@@ -18,7 +18,7 @@ def train_mVAE(dataloaders, components, vae, epoch_count, checkpoint_folder, use
         from MLR_src.wandb_setup import initialize_wandb, log_system_metrics
         initialize_wandb('final-training', {'version':'MLR_2.0_2D_RETINA_STN'}, checkpoint_folder)
 
-    # TODO seperate the learning rate for spatial transformer/ rest of network
+    # seperate the learning rate for spatial transformer/ rest of network
     optimizer = optim.Adam(vae.parameters(), lr=0.00005, weight_decay=0.01)
     seen_labels = {}
     freeze_components = []

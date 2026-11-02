@@ -63,9 +63,9 @@ def filter_quickdraw(model, base_dataset, n_clusters=10, d=1, model_name='123'):
         if not os.path.exists(f'data/object_act_class_{model_name}_{i}.pkl'):
             # memory management
             object_act = []
-            for j in range(1, len(data_dict[i])//1000 + 1):
+            for j in range(1, len(data_dict[i])):
                 # convert sample list to tensor
-                samples = torch.stack(data_dict[i][(j-1)*1000:j*1000], dim=0).view(-1,3,28,28).to(d)  # [N, 28, 28]
+                samples = torch.stack(data_dict[i][(j-1):j], dim=0).view(-1,3,28,28).to(d)  # [N, 28, 28]
                 #save_image(samples[:5], 'sample1234.png', pad_value=0.6)
                 print(type(samples), samples.size())
                 activations = model.activations(samples)
@@ -93,20 +93,20 @@ def filter_quickdraw(model, base_dataset, n_clusters=10, d=1, model_name='123'):
         labels = gmm.fit_predict(object_act)
 
         cluster_sizes = np.bincount(labels)
-        sample_count = 400
-        # TODO: use selected clock index and find closest samples to it
-        if i == 10: #clock
+        sample_count = 40
+        # use selected clock index and find closest samples to it
+        if i == 100: #clock
             # choose the 400 samples closest to clock sample number 87
             clock_sample_idx = 87
             clock_sample = object_act[clock_sample_idx]
             dists = np.linalg.norm(object_act - clock_sample, axis=1)
             selected_indices = np.argsort(dists)[:sample_count]
-        elif i == 8: #sailboat
+            '''elif i == 8: #sailboat
             # choose the 400 samples closest to sailboat sample number 226
             sailboat_sample_idx = 990
             sailboat_sample = object_act[sailboat_sample_idx]
             dists = np.linalg.norm(object_act - sailboat_sample, axis=1)
-            selected_indices = np.argsort(dists)[:sample_count]
+            selected_indices = np.argsort(dists)[:sample_count]'''
         else:
             max_cluster = np.argmax(cluster_sizes)
             print('max_cluster:', max_cluster)
@@ -147,15 +147,15 @@ def save_filtered_images(base_dataset, filtered_indices):
         Image.fromarray(grid, 'RGB').save(f'filtered_images/class_{class_id}_grid.png')
         print(f'Saved grid for class {class_id}: {grid_rows}x{grid_cols} ({n} images)')
     filtered_dataset = np.array(filtered_dataset)
-    np.save(f'{DATASET_ROOT}quickdraw_npy/filtered_dataset_1.npy', filtered_dataset)
+    np.save(f'{DATASET_ROOT}quickdraw_npy/filtered_dataset_label_net.npy', filtered_dataset)
 
-base_dataset = np.load(f'{DATASET_ROOT}quickdraw_npy/full_numpy_bitmap_all_objs.npy')
+base_dataset = np.load(f'{DATASET_ROOT}quickdraw_npy/filtered_dataset_1.npy')
 print(base_dataset.shape)
-folder_name = "group-quickdraw-full-1000"
+folder_name = "bg-col-6000"
 checkpoint_folder_path = f'checkpoints/{folder_name}'
 vae = load_checkpoint(f'{checkpoint_folder_path}/mVAE_checkpoint.pth', d=1, draw=True)
 vae.eval()
 
-filtered_indices = filter_quickdraw(vae, base_dataset, n_clusters=40, d= 1, model_name=folder_name)
+filtered_indices = filter_quickdraw(vae, base_dataset, n_clusters=40, d= 1, model_name=folder_name+'2')
 save_filtered_images(base_dataset, filtered_indices)
 

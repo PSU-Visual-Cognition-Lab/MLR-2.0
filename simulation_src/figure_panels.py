@@ -9,8 +9,8 @@ def interference(vae, folder_path, load_data=False):
     if not os.path.exists(folder_path):
         os.mkdir(folder_path)
 
+    figures.fig_efficient_rep(vae, folder_path) 
     figures.fig_feature_swap(vae, folder_path, load_data)
-    figures.fig_efficient_rep(vae, folder_path) #WORKING
     pass
 
 @torch.no_grad()
@@ -46,9 +46,10 @@ def generative(vae, shape_label, s_classes, color_label, c_classes, folder_path,
     folder_path = folder_path + "generative/"
     if not os.path.exists(folder_path):
         os.mkdir(folder_path)
+    
+    figures.percept_concept(vae, shape_label, s_classes, folder_path, load_data)
 
-    # TODO: implement fig_generative_noise()
-    figures.fig_generative_noise(vae, shape_label, s_classes, color_label, c_classes, folder_path, load_data)
+    figures.fig_generative_noise_2DPCA(vae, shape_label, s_classes, color_label, c_classes, folder_path, load_data)
 
 @torch.no_grad()
 def synthesis(vae, shape_label, s_classes, shape_classifier, folder_path, load_data=False):
@@ -57,9 +58,9 @@ def synthesis(vae, shape_label, s_classes, shape_classifier, folder_path, load_d
         os.mkdir(folder_path)
 
     # head phones 2 o's plus U, lolipop O + i, ice cream cone V + 1-3 o's
-    #figures.fig_visual_synthesis_umbrella(vae, shape_label, s_classes, shape_classifier, folder_path + "umbrella/", load_data)
+    figures.fig_visual_synthesis_umbrella(vae, shape_label, s_classes, shape_classifier, folder_path + "umbrella/", load_data)
     figures.fig_visual_synthesis_clock(vae, shape_label, s_classes, shape_classifier, folder_path + "clock/", load_data)
-    #figures.fig_visual_synthesis_boat(vae, shape_label, s_classes, shape_classifier, folder_path + "boat/", load_data)
+    figures.fig_visual_synthesis_boat(vae, shape_label, s_classes, shape_classifier, folder_path + "boat/", load_data)
 
 @torch.no_grad()
 def scene(vae, object_label, color_label, object_classifier, color_classifier, folder_path, load_data=False):
@@ -85,14 +86,6 @@ def flexibility(vae, folder_path, load_data=False):
 
     figures.fig_encoding_flexibility(vae, folder_path)
 
-@torch.no_grad()
-def holistic(vae, folder_path, load_data=False):
-    folder_path = folder_path + "holistic/"
-    if not os.path.exists(folder_path):
-        os.mkdir(folder_path)
-
-    figures.fig_retinal_mod(vae, folder_path)
-    #pass
 
 @torch.no_grad()
 def poster(vae, folder_path, load_data=False):
@@ -101,7 +94,7 @@ def poster(vae, folder_path, load_data=False):
         os.mkdir(folder_path)
 
     figures.fig_simultaneous_vs_sequential(vae, folder_path, load_data)
-    #figures.fig_efficient_rep(vae, folder_path) #WORKING
+    figures.fig_efficient_rep(vae, folder_path) #WORKING
 
 @torch.no_grad()
 def basic(vae, folder_path, load_data=False):
@@ -112,11 +105,10 @@ def basic(vae, folder_path, load_data=False):
     figures.functionality_test(vae, 0, 0, 0, 0, folder_path)
     figures.recon_test(vae, folder_path)
 
+
 @torch.no_grad()
-def modality(vae, shape_label, s_classes, folder_path, load_data=False):
-    folder_path = folder_path + "modality/"
+def allstims(vae, folder_path, load_data=False):
+    folder_path = folder_path + "allstims/"
     if not os.path.exists(folder_path):
         os.mkdir(folder_path)
-        
-    figures.percept_concept(vae, shape_label, s_classes, folder_path, load_data)
-
+    figures.fig_allstims(vae, folder_path, load_data)

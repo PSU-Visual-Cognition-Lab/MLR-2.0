@@ -57,7 +57,7 @@ def load_checkpoint(filepath, d=0, draw = False):
         vae, z = vae_builder()
 
     vae.to(device)
-    result = vae.load_state_dict(checkpoint['state_dict'], strict=True)
+    result = vae.load_state_dict(checkpoint['state_dict'], strict=False)
     print('Missing keys (should be empty):', result.missing_keys)
     print('Unexpected keys (should be empty):', result.unexpected_keys)
     return vae
@@ -146,7 +146,7 @@ class VAE_CNN(nn.Module):
         self.fc4c = nn.Linear(color_z_dim, h_dim2)  # color
 
         self.fc5 = nn.Linear(h_dim2, int(imgsize/4) * int(imgsize/4) * 16)
-        self.fc8 = LowRankLinear(18*28*28, 18*28*28, rank=4096)  #skip conection
+        self.fc8 = None#nn.Identity()  #LowRankLinear(18*28*28, 18*28*28, rank=4096)  #skip conection
 
         self.conv5 = nn.ConvTranspose2d(16, 64, kernel_size=3, stride=2, padding=1, output_padding=1, bias=False, groups=4)
         self.bn5 = nn.GroupNorm(8, 64)
@@ -157,7 +157,7 @@ class VAE_CNN(nn.Module):
         self.conv8 = nn.ConvTranspose2d(18, 3, kernel_size=3, stride=1, padding=1, bias=False, groups=3)
         self.bn8 = nn.GroupNorm(1, 3)
 
-        self.skip_bn = nn.GroupNorm(3, 18)
+        self.skip_bn = None #nn.GroupNorm(3, 3)
 
         self.localization = nn.Sequential(
             nn.Conv2d(3, 20, kernel_size=3, stride=1, padding=1, bias=False),
@@ -268,42 +268,30 @@ class VAE_CNN(nn.Module):
         return retina
     
     def encoder(self, x, hskip = None):   # used for MNIST and EMNIST
-        if hskip is not None: # for reprocessing l1 through bottleneck,  note that x is ignored 
-            h = hskip.view(-1, 16, imgsize, imgsize)
-            h = self.relu(self.bn2(self.conv2(h)))        
-            h = self.relu(self.bn3(self.conv3(h)))
-            h = self.relu(self.bn4(self.conv4(h)))
-            h = h.view(-1,int(imgsize / 4) * int(imgsize / 4)*16)
-            h = self.relu(self.fc_bn2(self.fc2(h)))
-        else:    
-            b_dim = x.size(0)
-            h = self.sparse_relu(self.bn1(self.conv1(x)))
-            hskip = h.view(b_dim,-1) #.skip_a(h)
-            h = self.relu(self.bn2(self.conv2(h)))        
-            h = self.relu(self.bn3(self.conv3(h)))
-            h = self.relu(self.bn4(self.conv4(h)))
-            h = h.view(-1,int(imgsize / 4) * int(imgsize / 4)*16)
-            h = self.relu(self.fc_bn2(self.fc2(h)))
+        if hskip is not None: # for reprocessing l1 through bottleneck,  note that initial x is ignored
+            x = hskip.view(-1, 3, imgsize, imgsize)    
+        b_dim = x.size(0)
+        hskip = x.reshape(b_dim,-1) #.skip_a(h)
+        h = self.sparse_relu(self.bn1(self.conv1(x)))
+        h = self.relu(self.bn2(self.conv2(h)))        
+        h = self.relu(self.bn3(self.conv3(h)))
+        h = self.relu(self.bn4(self.conv4(h)))
+        h = h.view(-1,int(imgsize / 4) * int(imgsize / 4)*16)
+        h = self.relu(self.fc_bn2(self.fc2(h)))
 
         return self.fc31(h), self.fc32(h), self.fc33(h), self.fc34(h), hskip # mu, log_var
 
     def encoder_object(self, x, hskip = None):    #used for Quickdraw images  (with color)  (identical to encoder except for the return values)
-        if hskip is not None: # for reprocessing l1 through bottleneck,  note that x is ignored
-            h = hskip.view(-1, self.fc8.size//(imgsize**2), imgsize, imgsize)
-            h = self.relu(self.bn2(self.conv2(h)))        
-            h = self.relu(self.bn3(self.conv3(h)))
-            h = self.relu(self.bn4(self.conv4(h)))
-            h = h.view(-1,int(imgsize / 4) * int(imgsize / 4)*16)
-            h = self.relu(self.fc_bn2(self.fc2(h)))
-        else:    
-            b_dim = x.size(0)
-            h = self.sparse_relu(self.bn1(self.conv1(x)))
-            hskip = h.view(b_dim,-1) # hskip = self.skip_a(h) #.view(b_dim,-1)
-            h = self.relu(self.bn2(self.conv2(h)))        
-            h = self.relu(self.bn3(self.conv3(h)))
-            h = self.relu(self.bn4(self.conv4(h)))
-            h = h.view(-1,int(imgsize / 4) * int(imgsize / 4)*16)
-            h = self.relu(self.fc_bn2(self.fc2(h)))
+        if hskip is not None: # for reprocessing l1 through bottleneck,  note that initial x is ignored
+            x = hskip.view(-1, 3, imgsize, imgsize)   
+        b_dim = x.size(0)
+        hskip = x.reshape(b_dim,-1) # hskip = self.skip_a(h) #.view(b_dim,-1)
+        h = self.sparse_relu(self.bn1(self.conv1(x)))
+        h = self.relu(self.bn2(self.conv2(h)))        
+        h = self.relu(self.bn3(self.conv3(h)))
+        h = self.relu(self.bn4(self.conv4(h)))
+        h = h.view(-1,int(imgsize / 4) * int(imgsize / 4)*16)
+        h = self.relu(self.fc_bn2(self.fc2(h)))
         return self.fc35(h), self.fc36(h) # mu, log_var
 
     def activations(self, x, retinal=False, hskip = None, which_encode=None): # returns shape, color, scale, location, and skip(l1) latent activations
@@ -515,12 +503,17 @@ class VAE_CNN(nn.Module):
         return torch.sigmoid(h)
 
     def decoder_skip_cropped(self, z_shape, z_color, z_location, hskip):
-        h= self.fc8(hskip.view(-1, self.fc8.size))#hskip
+        #h= self.fc8(hskip.view(-1, 3*28*28))#hskip
         #h = self.skip_b(hskip.view(-1,16,28,28))
-        h = self.relu(self.skip_bn(h.view(-1, self.fc8.size//(imgsize**2), imgsize, imgsize)))
-        h = self.conv8(h).view(-1, 3, imgsize, imgsize)
-        return torch.sigmoid(h)
+        #h = self.relu(self.skip_bn(h.view(-1, 3, imgsize, imgsize)))
+        h = self.relu(hskip.view(-1, 3, imgsize, imgsize))
+        # TODO: learnable denoising layer
+        if not self.training:
+            h = torch.sigmoid((h)) - 0.5
+            h = h * 3.9
+        return h
 
+    # VVV deprecated
     def decoder_skip_retinal(self, z_shape, z_color, z_location, hskip):
         # digit recon
         h= self.fc8(hskip)
@@ -1008,9 +1001,9 @@ def component_to_grad(comp): # determine gradient for component training
     else:
         raise Exception(f'Invalid component: {comp}')
 
-def batch_samples(sample_dataloader_names: list, dataloaders: dict, whichdecode_use: str, randomize: bool = True, return_crop: bool = False):
+# this function is used to train the SVMs and label_nets, it is no longer used for the mVAE
+def batch_samples(sample_dataloader_names: list, dataloaders: dict, whichdecode_use: str, randomize: bool = True):
     samples = []
-    crop_samples = []
     labels = []
     for sample_dataloader_name in sample_dataloader_names:
         sample_dataloader = dataloaders[sample_dataloader_name]
@@ -1018,8 +1011,6 @@ def batch_samples(sample_dataloader_names: list, dataloaders: dict, whichdecode_
         # if the dataloader has retinal=True, take the cropped img for cropped components
 
         if type(sample) == list:
-            crop_sample = sample[1]
-            crop_samples += [crop_sample]
             if whichdecode_use in ['cropped', 'shape', 'color', 'object', 'cropped_object']:
                 sample = sample[1]   # cropped version
             else:
@@ -1033,23 +1024,68 @@ def batch_samples(sample_dataloader_names: list, dataloaders: dict, whichdecode_
             labels[i].append(t)
 
     samples = torch.cat(samples, 0)
-    if len(crop_samples) > 0:
-        crop_samples = torch.cat(crop_samples, 0)
-    else:
-        crop_samples = samples
     labels = [torch.cat(l, 0) for l in labels]
     if randomize:
         perm = torch.randperm(samples.shape[0])
-        if return_crop:
-            return samples[perm], crop_samples[perm], [l[perm] for l in labels]
-
         return samples[perm], [l[perm] for l in labels]
 
     else:
-        if return_crop:
-            return samples, crop_samples, labels
-
         return samples, labels
+
+# this function is used to train the mVAE
+def get_batch(sample_dataloader_names: list, dataloaders: dict, whichdecode_use: str, randomize: bool = True):
+    input_samples = []
+    loss_samples = []
+    crop_samples = []
+    labels = []
+    for sample_dataloader_name in sample_dataloader_names:
+        sample_dataloader = dataloaders[sample_dataloader_name]
+        sample, sample_labels = next(sample_dataloader)  # load some data from this particular loader
+        # if the dataloader has retinal=True, take the cropped img for cropped components
+
+        if type(sample) == list:
+            crop_samples += [sample[1]]
+            if whichdecode_use in ['cropped', 'shape', 'color', 'object', 'cropped_object']:
+                # cropped version
+                if len(sample) > 3:
+                    input_sample = sample[3]
+                else:
+                    input_sample = sample[1]
+                loss_sample = sample[1]
+            else:
+                # retina version
+                if len(sample) > 3:
+                    input_sample = sample[2]
+                else:
+                    input_sample = sample[0]
+                loss_sample = sample[0]
+
+        input_samples += [input_sample]
+        loss_samples += [loss_sample]
+        
+        if not labels:
+            labels = [[] for _ in sample_labels]
+        for i, t in enumerate(sample_labels):
+            labels[i].append(t)
+
+    input_samples = torch.cat(input_samples, 0)
+    loss_samples = torch.cat(loss_samples, 0)
+    if len(crop_samples) > 0:
+        crop_samples = torch.cat(crop_samples, 0)
+    else:
+        crop_samples = None
+
+    labels = [torch.cat(l, 0) for l in labels]
+    if randomize:
+        perm = torch.randperm(input_samples.shape[0])
+        samples = {'input': input_samples[perm],
+                   'loss': loss_samples[perm], 
+                   'labels': [l[perm] for l in labels],
+                   'crop': crop_samples[perm] if crop_samples is not None else None}
+    else:
+        samples = {'input': input_samples, 'loss': loss_samples, 'labels': labels, 'crop': crop_samples}
+
+    return samples
 
 def freeze_and_prune_optimizer(model, optimizer, names_to_freeze):
     frozen_params = set()
@@ -1228,17 +1264,21 @@ def train(vae, optimizer, epoch, dataloaders, return_loss = False, seen_labels =
         comp_ind = count % len(components)  #step through the whole list of components
         whichdecode_use = components[comp_ind]  #which particular latent/decoder to use for this component   (string)
         sample_dataloaders = training_components[components[comp_ind]][0]  #which dataloader(s) does this particular component need?  (string)
-        data, crop_data, labels = batch_samples(sample_dataloaders, dataloaders, whichdecode_use, True, True)
+        batch = get_batch(sample_dataloaders, dataloaders, whichdecode_use, False)
         #print(torch.stack(labels, dim=1))
+        data = batch['input']
+        labels = batch['labels']
+        loss_data = batch['loss']
+        crop_data = batch['crop']
         keepgrad = component_to_grad(whichdecode_use)      
         
         recon_batch, mu_color, log_var_color, mu_shape, log_var_shape, mu_object, log_var_object = vae(data, whichdecode_use, keepgrad)
             
         if whichdecode_use == 'shape':  # emnist and mnist shape
-            loss = loss_function_shape(recon_batch, data, mu_shape, log_var_shape)
+            loss = loss_function_shape(recon_batch, loss_data, mu_shape, log_var_shape)
 
         elif whichdecode_use == 'color': # color
-            loss = loss_function_color(recon_batch, data, mu_color, log_var_color)
+            loss = loss_function_color(recon_batch, loss_data, mu_color, log_var_color)
 
         elif whichdecode_use in ['retinal', 'retinal_object']: # retinal
             #test_gt_theta(vae, data, crop_data, labels, checkpoint_folder)  
@@ -1263,7 +1303,7 @@ def train(vae, optimizer, epoch, dataloaders, return_loss = False, seen_labels =
                     nrow=25, pad_value=0.6, normalize=False)
 
         elif whichdecode_use == 'cropped': # cropped
-            loss = loss_function_crop(recon_batch, data)
+            loss = loss_function_crop(recon_batch, loss_data)
             if count >= (max_iter - len(components)) and save_imgs:
                 utils.save_image(
                     torch.cat([data.view(-1, 3, 28, 28)[:25].cpu(),
@@ -1272,17 +1312,17 @@ def train(vae, optimizer, epoch, dataloaders, return_loss = False, seen_labels =
                     nrow=25, pad_value=0.6, normalize=False)
                 
         elif whichdecode_use == 'skip_cropped': # skip training
-            loss = loss_function_crop(recon_batch, data)
+            loss = loss_function_crop(recon_batch, loss_data)
         
         elif whichdecode_use == 'object': # quickdraw object training
-            loss = loss_function_shape(recon_batch, data, mu_object, log_var_object, beta=5)
+            loss = loss_function_shape(recon_batch, loss_data, mu_object, log_var_object, beta=5)
 
         elif whichdecode_use == 'stn_retinal': # quickdraw object training
             #loss = loss_function_crop(recon_batch, crop_data)
             print('not functional')
 
         elif whichdecode_use == 'cropped_object': # cropped quickdraw object training
-            loss = loss_function_crop(recon_batch, data)
+            loss = loss_function_crop(recon_batch, loss_data)
             if count >= (max_iter - len(components)) and save_imgs:
                 utils.save_image(
                     torch.cat([data.view(-1, 3, 28, 28)[:25].cpu(),
@@ -1315,7 +1355,8 @@ def train(vae, optimizer, epoch, dataloaders, return_loss = False, seen_labels =
         #test_dataset_name = sample_dataloader_name
         #print(test_dataset_name)
         if count % int(0.25*max_iter) == 0 and save_imgs:
-            test_data, test_labels = batch_samples(training_components['retinal'][0], dataloaders, 'cropped') # error signals from full pass through MLR
+            test_batch = get_batch(training_components['cropped'][0], dataloaders, 'cropped') # error signals from full pass through MLR
+            test_data = test_batch['input']
             progress_out(vae, test_data, checkpoint_folder,'emnist'+str(epoch))    #this is used to test progress_out without waiting for a whole epoch
 
         if count % int(0.9*max_iter) == 0 and save_imgs:
@@ -1324,11 +1365,13 @@ def train(vae, optimizer, epoch, dataloaders, return_loss = False, seen_labels =
             #progress_out(vae, test_data[1], checkpoint_folder,'emnist'+str(epoch))
             
             if 'quickdraw-map' in dataloaders:
-                test_data, test_labels = batch_samples(['quickdraw-map'], dataloaders, 'object', True)
+                test_batch = get_batch(['quickdraw-map', 'quickdraw-color_bg_map'], dataloaders, 'object', True)
+                test_data = test_batch['input']
                 progress_out(vae, test_data, checkpoint_folder,'quickdraw'+str(epoch))
                 #print([test_labels[x][:20] for x in range(len(test_labels))])
             elif 'quickdraw_full-map' in dataloaders:
-                test_data, test_labels = batch_samples(['quickdraw_full-map'], dataloaders, 'object', True)
+                test_batch = get_batch(['quickdraw_full-map'], dataloaders, 'object', True)
+                test_data = test_batch['input']
                 progress_out(vae, test_data, checkpoint_folder,'quickdraw'+str(epoch))
            
 

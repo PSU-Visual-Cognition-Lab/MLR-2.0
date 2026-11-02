@@ -1,0 +1,44 @@
+from PIL import Image, ImageDraw, ImageFont
+from torchvision import datasets, transforms, utils
+
+training_related_pairs = [('airplane', 'bird'), ('tree', 'axe')]
+testing_related_pairs = [('airplane', 'bird')]
+testing_unrelated_pairs = [('airplane', 'axe')]
+
+"""C, D, P, M, Z 
+1, 3, 4, 5, 8 """
+
+#emnist_targetset = [2, 3, 12, 15, 25]
+#print('TARGET set for shapes only  (reduced to improve quality)')
+#print(emnist_targetset)
+
+#mnist_targetset = [1, 3, 4, 5, 8]
+#print('TARGET set for shapes only  (reduced to improve quality)')
+#print(mnist_targetset)
+
+# dataset names must be in format <dataset name>-<component type>, unless there is only one component trained by that dataset
+training_datasets = {'emnist-map': {'retina':True, 'colorize':True, 'rotate':False, 'scale':True},
+                     'emnist-skip': {'retina':False, 'colorize':True, 'rotate':True, 'scale':True, 'skip': True},
+                     'mnist-map': {'retina':True, 'colorize':True, 'rotate':False, 'scale':True},
+                     'mnist-skip': {'retina':False, 'colorize':True, 'rotate':True, 'scale':True, 'skip': True},
+                     'quickdraw-map': {'retina':True, 'colorize':True, 'rotate':False, 'scale':True},
+                     'quickdraw-skip': {'retina':True, 'colorize':True, 'rotate':False, 'scale':True, 'skip': True},
+                     'cifar10': {'retina':True, 'rotate':False, 'scale':True},
+                     'square-map': {'retina':True, 'colorize':True, 'rotate':False, 'scale':True},
+                     'line': {'retina':True, 'colorize':True, 'rotate':False, 'scale':True},
+                     'fashion_mnist': {'retina':True, 'colorize':True, 'rotate':False, 'scale':True},
+                     'quickdraw_pairs-map': {'retina':True, 'colorize':True, 'rotate':False, 'scale':True, 'class_pairs': training_related_pairs}}
+
+training_components = {'shape': [['emnist-map', 'mnist-map'], 2], # shape map, weighted 3 times in training etc
+                       'color': [['emnist-map', 'mnist-map'], 3], # color map
+                       'object': [['quickdraw-map'], 1], # map for quickdraw
+                       'cropped': [['emnist-map', 'mnist-map'], 2], # shape and color recon
+                       'cropped_object': [['quickdraw-map'], 1], # object and color recon
+                       'skip_cropped': [['emnist-skip', 'mnist-skip', 'quickdraw-skip'], 1], # mnist/emnist skip connection
+                       'retinal': [['emnist-map', 'mnist-map'], 1], # retinal, scale, location
+                       'retinal_object': [['quickdraw-map'], 1]} # retinal, scale, location, object
+
+def text_to_tensor(text,height,width):
+    img = Image.new('RGB', (width, height), (255, 255, 255))
+    ImageDraw.Draw(img).text((10, 10), text, fill=(0, 0, 0))
+    return transforms.ToTensor()(img)

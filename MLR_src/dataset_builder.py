@@ -93,19 +93,6 @@ for rgb in colorvals:
     colorvals_lab.append((L, a, b, scale))
 
 class Colorize_specific:
-    """
-    Drop-in replacement for Colorize_specific that works in CIELAB.
- 
-    Parameters
-    ----------
-    col : int
-        Index into colornames / colorvals_lab (same index as before).
-    l_min, l_max : float
-        Luminance range [0, 100] to which the grayscale is linearly mapped.
-    ab_variation_scale : float
-        Scales the ±colorrange random variation into a*/b* units.
-    """
- 
     def __init__(
         self,
         col: int,
@@ -137,13 +124,13 @@ class Colorize_specific:
         a_val = a_center + np.random.uniform(-var, var)
         b_val = b_center + np.random.uniform(-var, var)
  
-        # 4. build full Lab image  (H × W × 3)
+        # build full Lab image  (H, W, 3)
         lab_img = np.stack(
             [L, np.full((H, W), a_val), np.full((H, W), b_val)],
             axis=-1,
         )
  
-        # 5. convert Lab → sRGB; clip residual float errors only
+        # convert Lab to sRGB, clip residual float errors only
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             rgb_float = skcolor.lab2rgb(lab_img).clip(0.0, 1.0)
@@ -173,6 +160,107 @@ class Colorize_specific_RGB:
 
         return img
 
+class Colorize_background_specific:
+    def __init__(
+        self,
+        col: int,
+        bg_lightness: float = 20.0,
+        ab_variation_scale: float = AB_VARIATION_SCALE,
+        bg_threshold: int = 10,
+        col_2: int = None
+    ):
+        self.col = col
+        self.bg_lightness = bg_lightness
+        self.ab_variation_scale = ab_variation_scale
+        self.bg_threshold = bg_threshold
+        self.col_2 = col_2
+
+    def __call__(self, img: Image.Image) -> Image.Image:
+        # 1. work in numpy; derive a grayscale mask from the RGB input
+        rgb = np.array(img, dtype=np.float64)           # [0, 255], shape (H, W, 3)
+        gray = rgb.mean(axis=-1)                        # cheap luminance proxy for masking only
+
+        # 2. identify background pixels
+        bg_mask = gray < self.bg_threshold              # True where pixel is "empty"
+
+        H, W = gray.shape
+
+        def _make_bg_rgb(col):
+            """Sample a*/b* for `col` and build a flat Lab->RGB background image."""
+            _, base_a, base_b, chroma_scale = colorvals_lab[col]
+            a_center = base_a * chroma_scale
+            b_center = base_b * chroma_scale
+            var = colorrange * self.ab_variation_scale
+            a_val = a_center + np.random.uniform(-var, var)
+            b_val = b_center + np.random.uniform(-var, var)
+
+            lab_bg = np.stack(
+                [
+                    np.full((H, W), self.bg_lightness),
+                    np.full((H, W), a_val),
+                    np.full((H, W), b_val),
+                ],
+                axis=-1,
+            )
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                return (skcolor.lab2rgb(lab_bg).clip(0.0, 1.0) * 255).astype(np.uint8)
+
+        # 3. build the background colour image(s)
+        if self.col_2 is not None:
+            rgb_bg_top = _make_bg_rgb(self.col)
+            rgb_bg_bottom = _make_bg_rgb(self.col_2)
+
+            rgb_bg = np.empty_like(rgb_bg_top)
+            mid = H // 2
+            rgb_bg[:mid] = rgb_bg_top[:mid]
+            rgb_bg[mid:] = rgb_bg_bottom[mid:]
+        else:
+            rgb_bg = _make_bg_rgb(self.col)
+
+        # 4. compose: keep foreground pixels untouched, replace background with colour
+        rgb_uint8 = np.array(img, dtype=np.uint8).copy()
+        rgb_uint8[bg_mask] = rgb_bg[bg_mask]
+
+        return Image.fromarray(rgb_uint8, "RGB")
+
+
+    def call_OL(self, img: Image.Image) -> Image.Image:
+        # 1. work in numpy; derive a grayscale mask from the RGB input
+        rgb = np.array(img, dtype=np.float64)           # [0, 255], shape (H, W, 3)
+        gray = rgb.mean(axis=-1)                        # cheap luminance proxy for masking only
+
+        # 2. identify background pixels
+        bg_mask = gray < self.bg_threshold              # True where pixel is "empty"
+
+        # 3. sample a*/b* for the background colour (same logic as Colorize_specific)
+        _, base_a, base_b, chroma_scale = colorvals_lab[self.col]
+        a_center = base_a * chroma_scale
+        b_center = base_b * chroma_scale
+        var = colorrange * self.ab_variation_scale
+        a_val = a_center + np.random.uniform(-var, var)
+        b_val = b_center + np.random.uniform(-var, var)
+
+        # 4. build a flat Lab image at bg_lightness and convert to RGB
+        H, W = gray.shape
+        lab_bg = np.stack(
+            [
+                np.full((H, W), self.bg_lightness),
+                np.full((H, W), a_val),
+                np.full((H, W), b_val),
+            ],
+            axis=-1,
+        )
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            rgb_bg = (skcolor.lab2rgb(lab_bg).clip(0.0, 1.0) * 255).astype(np.uint8)
+
+        # 5. compose: keep foreground pixels untouched, replace background with colour
+        rgb_uint8 = np.array(img, dtype=np.uint8).copy()
+        rgb_uint8[bg_mask] = rgb_bg[bg_mask]
+
+        return Image.fromarray(rgb_uint8, "RGB")
+
 class No_Color_3dim:
     def __init__(self):
         self.x = None
@@ -185,7 +273,7 @@ class No_Color_3dim:
         return img
 
 class Translate_old:
-    # TODO replace loc with (x, y) vector
+    # loc (x, y) vector
     def __init__(self, scale, loc, max_width, min_width = 28, build_ret = True):
         self.max_width = max_width
         self.min_width = min_width
@@ -327,13 +415,18 @@ class Translate:
         return ImageOps.expand(img, padding), pos
 
 class PadAndPosition:
-    def __init__(self, transform):
-        self.transform = transform
+    def __init__(self, transform_1, transform_2 = None):
+        self.transform_1 = transform_1 # Translate
+        self.transform_2 = transform_2 # Colorize_background_specific
 
     def __call__(self, img):
-        new_img, position = self.transform(img)
-        return torch_transforms.ToTensor()(new_img), torch_transforms.ToTensor()(img), position #retinal, crop, position
+        new_img, position = self.transform_1(img)
+        if self.transform_2 is not None:
+            new_img_bg_col = self.transform_2(new_img)
+            img_bg_col = self.transform_2(img)
+            return torch_transforms.ToTensor()(new_img), torch_transforms.ToTensor()(img), torch_transforms.ToTensor()(new_img_bg_col), torch_transforms.ToTensor()(img_bg_col) #retinal, crop, retinal w/ bg col, crop w/ bg col
 
+        return torch_transforms.ToTensor()(new_img), torch_transforms.ToTensor()(img)
 class ToTensor:
     def __init__(self):
         self.x = None
@@ -556,8 +649,9 @@ def label_to_string(label: int) -> str:
 
 
 class Dataset(data.Dataset):
-    def __init__(self, dataset, transforms={}, train=True):
-        # Use if the stimulus will put a stimulus into the retina
+    def __init__(self, dataset, transforms={}, train=True, component=None):
+        self.component = component # load a different subset of the base dataset for specific components like the label net
+        # Use if the stimulus will be put into the retina
         if 'retina' in transforms: 
             self.retina = transforms['retina']
             self.scale_range = {} # init
@@ -643,6 +737,17 @@ class Dataset(data.Dataset):
         else:
             self.rotate = False
 
+        if 'colorize_background' in transforms:
+            if transforms['colorize_background'] == 'split':
+                self.colorize_background = True
+                self.split_background = True
+            else:
+                self.colorize_background = transforms['colorize_background']
+                self.split_background = False
+        else:
+            self.colorize_background = False
+            self.split_background = False
+
         # initialize skip connection
         if 'skip' in transforms:
             self.skip = transforms['skip']
@@ -669,7 +774,6 @@ class Dataset(data.Dataset):
             self.name = dataset
             self.train = train
             self.dataset = self._build_dataset(dataset, train)
-            #self.data_source = self
 
         else:
             raise ValueError('invalid dataset input type')
@@ -699,7 +803,7 @@ class Dataset(data.Dataset):
             #lambda img: torch_transforms.functional.hflip(img)]), download=True)
 
         elif dataset == 'fashion_mnist':
-            base_dataset = datasets.FashionMNIST(f'{DATASET_ROOT}fashionmnist_data/', train=train, transform = None, download=False)
+            base_dataset = datasets.FashionMNIST(f'{DATASET_ROOT}fashionmnist_data/', train=train, transform = None, download=True)
 
         elif dataset == 'cifar10':
             base_dataset = datasets.CIFAR10(root=DATASET_ROOT, train=train, download=False, transform=None)
@@ -714,7 +818,10 @@ class Dataset(data.Dataset):
             base_dataset = None
         
         elif dataset == 'quickdraw':
-            base_dataset = np.load(f'{DATASET_ROOT}quickdraw_npy/filtered_dataset_1.npy')
+            if self.component is not None:
+                base_dataset = np.load(f'{DATASET_ROOT}quickdraw_npy/filtered_dataset_{self.component}.npy')
+            else:
+                base_dataset = np.load(f'{DATASET_ROOT}quickdraw_npy/filtered_dataset_1.npy')
 
         elif dataset == 'quickdraw_full': # unfiltered quickdraw dataset
             base_dataset = np.load(f'{DATASET_ROOT}quickdraw_npy/full_numpy_bitmap_all_objs.npy')
@@ -831,6 +938,18 @@ class Dataset(data.Dataset):
         if self.rotate == True:
             transform_list += [RandomRotate90()]
 
+        if self.colorize_background == True:
+            bg_col = random.randint(0,9)
+
+            if self.split_background:
+                bg_col_2 = (bg_col + random.randint(1, 9)) % len(colorvals_lab)
+            else:
+                bg_col_2 = None
+            
+            bg_col_transform = Colorize_background_specific(bg_col, 20, AB_VARIATION_SCALE, 10, bg_col_2)
+        else:
+            bg_col_transform = None
+
         # retina
         if self.retina == True:
             if self.scale == True:
@@ -848,7 +967,7 @@ class Dataset(data.Dataset):
             if target in self.target_quadrants:
                 translation_quadrant = self.target_quadrants[target]
             else:
-                #print('TARGET MISS', target, self.target_quadrants)
+                print('TARGET MISS', target, self.target_quadrants)
                 translation_quadrant = random.choice([(-1, -1), (1, 1), (-1, 1), (1, -1)])
             if image.size != (28,28):
                 print('size miss')
@@ -859,9 +978,12 @@ class Dataset(data.Dataset):
             top_padding = self.retina_size - height - bottom_padding
             translation = (left_padding, bottom_padding)
             translation_label = (left_padding + width / 2, top_padding + height / 2)
-            translate = PadAndPosition(Translate(scale, translation, self.retina_size, self.build_ret))
+            translate = PadAndPosition(Translate(scale, translation, self.retina_size, self.build_ret), bg_col_transform)
             transform_list += [translate]
         else:
+            if bg_col_transform is not None:
+                transform_list += [bg_col_transform]
+
             scale = 1
             translation_label = (-1, -1) # no translation
             transform_list += [self.totensor]

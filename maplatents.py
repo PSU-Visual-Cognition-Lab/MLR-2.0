@@ -95,7 +95,7 @@ def collect_latents(vae: VAE_CNN, dataloaders, component, n_samples, use_mu=True
             retinal_object_latent = retinal_activations['object']
 
         if component == 'object':
-            z = cropped_object_latent # torch.cat([cropped_object_latent, retinal_object_latent], 0) 
+            z = retinal_object_latent # torch.cat([cropped_object_latent, retinal_object_latent], 0) 
         elif component == 'shape':
             z = cropped_shape_latent#torch.cat([cropped_shape_latent, retinal_shape_latent], 0)
         elif component == 'color':

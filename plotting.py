@@ -42,7 +42,23 @@ vae_shape_labels.to(device)
 print('checkpoint loaded')
 
 # set seaborn styles
-sns.set_theme(context="paper", style="white")
+sns.set_theme(
+    context="paper",
+    style="white",
+    font_scale=1.8,
+    rc={
+        "lines.linewidth": 2.5,
+        "lines.markersize": 8,
+        "axes.linewidth": 1.5,
+        "xtick.major.width": 1.5,
+        "ytick.major.width": 1.5,
+        "xtick.major.size": 5,
+        "ytick.major.size": 5,
+        "xtick.bottom": True,
+        "ytick.left": True,
+        "font.family": "sans-serif",
+    },
+)
 
 simulation_folder_path = f'simulations/{run_name}/'
 if not os.path.exists('simulations/'):
@@ -60,9 +76,9 @@ panel_dict = {"synthesis": lambda: figure_panels.synthesis(vae, vae_shape_labels
               "novel": lambda: figure_panels.novel(vae, simulation_folder_path),
               "compositional": lambda: figure_panels.compositional(vae, simulation_folder_path),
               "flexibility": lambda: figure_panels.flexibility(vae, simulation_folder_path),
-              "modality": lambda: figure_panels.modality(vae, vae_shape_labels, s_classes, simulation_folder_path),
               "scene": lambda: figure_panels.scene(vae, vae_object_labels, vae_color_labels, clf_objectS, clf_color, simulation_folder_path),
-              "poster": lambda: figure_panels.poster(vae, simulation_folder_path)
+              "poster": lambda: figure_panels.poster(vae, simulation_folder_path),
+              "allstims": lambda: figure_panels.allstims(vae, simulation_folder_path)
               }
 
 if 'all' in panels:
@@ -79,39 +95,3 @@ elif panels:
         else:
             print(f'panel {panel} not recognized')
 
-'''figure_panels.synthesis(vae, vae_shape_labels, s_classes, clf_objectS, simulation_folder_path)
-figure_panels.individuated(vae, simulation_folder_path)  #generating and retrieving specific examples of objects
-figure_panels.interference(vae, simulation_folder_path)
-figure_panels.basic(vae, simulation_folder_path)
-figure_panels.generative(vae, vae_shape_labels, s_classes, vae_color_labels, c_classes, simulation_folder_path)
-figure_panels.addressability(vae, clf_color, simulation_folder_path)
-figure_panels.novel(vae, simulation_folder_path)
-figure_panels.compositional(vae, simulation_folder_path)
-figure_panels.flexibility(vae, simulation_folder_path)
-figure_panels.poster(vae, simulation_folder_path)'''
-
-#synthesis(vae, vae_shape_labels, s_classes, clf_objectS, simulation_folder_path)
-#poster(vae, simulation_folder_path, False)
-#individuated(vae, simulation_folder_path)
-#interference(vae, simulation_folder_path)
-#novel(vae, simulation_folder_path)
-#addressability(vae, clf_color, simulation_folder_path)
-#flexibility(vae, simulation_folder_path)
-'''generative(vae, vae_shape_labels, s_classes, vae_color_labels, c_classes, simulation_folder_path)
-
-synthesis(vae, vae_shape_labels, s_classes, clf_objectS, simulation_folder_path)
-
-'''
-#individuated(vae, simulation_folder_path)  #generating and retrieving specific examples of objects
-
-#interference(vae, simulation_folder_path)
-#basic(vae, simulation_folder_path)
-#generative(vae, vae_shape_labels, s_classes, vae_color_labels, c_classes, simulation_folder_path)
-#addressability(vae, clf_color, simulation_folder_path)
-
-#novel(vae, simulation_folder_path)
-
-#compositional(vae, simulation_folder_path)
-#flexibility(vae, simulation_folder_path)
-
-#novel(vae, simulation_folder_path)
