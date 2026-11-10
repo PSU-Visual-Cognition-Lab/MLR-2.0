@@ -1,6 +1,7 @@
 from simulation_src import figure_panels
 from MLR_src.mVAE import load_checkpoint
 from MLR_src.label_network import load_checkpoint_labels, s_classes, c_classes
+from MLR_src.dataset_builder import DATASET_ROOT
 import torch
 import os
 import matplotlib.pyplot as plt
@@ -23,7 +24,7 @@ panels = args.panels
 
 checkpoint_folder_path = f'checkpoints/{folder_name}/' # the output folder for the trained model versions
 d = 2
-vae = load_checkpoint(f'{checkpoint_folder_path}/mVAE_checkpoint.pth', d, True)
+vae = load_checkpoint(f'{checkpoint_folder_path}/mVAE_checkpoint.pth', d, True, f'{DATASET_ROOT}/checkpoints/denoiser/best.pt')
 vae.eval()
 
 vae_shape_labels = load_checkpoint_labels(f'{checkpoint_folder_path}/label_network_checkpoint.pth', "shape", d)
@@ -42,7 +43,7 @@ vae_shape_labels.to(device)
 print('checkpoint loaded')
 
 # set seaborn styles
-sns.set_theme(
+sns.set(
     context="paper",
     style="white",
     font_scale=1.8,
