@@ -42,7 +42,7 @@ from MLR_src.dataset_builder import Dataset
 from MLR_src.train_mVAE import train_mVAE
 from MLR_src.label_network import train_labelnet
 from MLR_src.train_classifiers_revised import train_classifiers
-from training_constants import training_datasets, training_components
+from training_constants2 import training_datasets, training_components
 from itertools import cycle
 from torchvision.utils import save_image
 
