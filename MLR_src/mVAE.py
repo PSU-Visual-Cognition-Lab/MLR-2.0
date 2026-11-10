@@ -30,24 +30,57 @@ import math
 from tqdm import trange
 from training_constants import training_components, text_to_tensor
 from MLR_src.dataset_builder import L_MIN, L_MAX
-
+from MLR_src.skip_denoiser import UNet
 
 from PIL import Image, ImageOps, ImageEnhance, __version__ as PILLOW_VERSION
 
 #torch.set_default_dtype(torch.float64)
 
-# load a saved vae checkpoint
-def load_checkpoint(filepath, d=0, draw = False):
-    
+def _extract_state_dict(ckpt):
+    """Accept either a raw state_dict or a dict wrapping one."""
+    if isinstance(ckpt, dict):
+        for k in ('state_dict', 'model_state_dict', 'model'):
+            if k in ckpt and isinstance(ckpt[k], dict):
+                ckpt = ckpt[k]
+                break
+    # strip DataParallel / torch.compile prefixes
+    return {k.replace('module.', '', 1).replace('_orig_mod.', '', 1): v
+            for k, v in ckpt.items()}
+
+
+def build_unet_from_state_dict(sd):
+    """Infer UNet hyperparameters from the weights so they always match the checkpoint."""
+    in_ch, base = sd['head.weight'].shape[:2]          # head = Conv2d(chs[0], in_ch, 1)
+    depth = len({k.split('.')[1] for k in sd if k.startswith('enc.')})
+    return UNet(in_ch=in_ch, base=base, depth=depth)
+
+
+def inject_denoiser(vae, unet_path, device, freeze=True):
+    raw = torch.load(unet_path, map_location=device)    # add weights_only=True if it's a plain state_dict
+    sd = _extract_state_dict(raw)
+
+    denoiser = build_unet_from_state_dict(sd).to(device)
+    result = denoiser.load_state_dict(sd, strict=True)   # strict: this one SHOULD match exactly
+    print('Denoiser loaded:', result)
+
+    if freeze:
+        denoiser.eval()
+        for p in denoiser.parameters():
+            p.requires_grad_(False)
+
+    vae.denoiser = denoiser
+    return vae
+
+
+def load_checkpoint(filepath, d=0, draw=False, unet_path=None, freeze_denoiser=True):
     if torch.cuda.is_available():
         device = torch.device(f'cuda:{d}')
         torch.cuda.set_device(d)
     else:
-        device = 'cpu'
-    
-    torch_version = torch.__version__
-    if torch_version == '2.4.0':
-        checkpoint = torch.load(filepath, device, weights_only = True)
+        device = torch.device('cpu')
+
+    if torch.__version__.startswith('2.4'):
+        checkpoint = torch.load(filepath, device, weights_only=True)
     else:
         checkpoint = torch.load(filepath, device)
 
@@ -55,10 +88,20 @@ def load_checkpoint(filepath, d=0, draw = False):
         vae, z = vae_builder(checkpoint['dimensions'], draw)
     else:
         vae, z = vae_builder()
-
     vae.to(device)
-    result = vae.load_state_dict(checkpoint['state_dict'], strict=False)
-    print('Missing keys (should be empty):', result.missing_keys)
+
+    state = checkpoint['state_dict']
+
+    if unet_path is not None:
+        # The injected denoiser wins: drop any denoiser.* keys from the VAE checkpoint
+        # (also avoids size-mismatch errors if shapes differ from the default UNet()).
+        state = {k: v for k, v in state.items() if not k.startswith('denoiser.')}
+        inject_denoiser(vae, unet_path, device, freeze=freeze_denoiser)
+
+    result = vae.load_state_dict(state, strict=False)
+    missing = [k for k in result.missing_keys if not k.startswith('denoiser.')] \
+              if unet_path is not None else result.missing_keys
+    print('Missing keys (should be empty):', missing)
     print('Unexpected keys (should be empty):', result.unexpected_keys)
     return vae
 
@@ -175,6 +218,7 @@ class VAE_CNN(nn.Module):
             nn.Linear(32, 3),   # s, x, y, rotation
         )
 
+        self.denoiser = UNet()
 
         #self.regressor[-1].weight.data.zero_()
         # bias chosen so sigmoid(bias) maps to your desired initial scale, e.g. ~28/64
@@ -511,6 +555,7 @@ class VAE_CNN(nn.Module):
         if not self.training:
             h = torch.sigmoid((h)) - 0.5
             h = h * 3.9
+            h = self.denoiser(h)
         return h
 
     # VVV deprecated
