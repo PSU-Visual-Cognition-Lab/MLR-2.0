@@ -15,6 +15,7 @@ from MLR_src.dataset_builder import Dataset  # noqa: E402
 from training_constants2 import training_datasets, training_components  # noqa: E402
 # ----------------------------------------------------------------------------
 
+# python MLR_src/skip_denoiser.py
 
 # =============================================================================
 # 1. Data sampling (your logic, wrapped)
