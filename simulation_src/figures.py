@@ -1462,12 +1462,6 @@ def fig_obj_scene_recon(vae: VAE_CNN, object_label, color_label, object_classifi
                         'location_targets': {(1, 1): list(range(0, s_classes + 1))}}
     obj_3_loader = Dataset('quickdraw', obj_3_transforms).get_loader(bs)
 
-    #novel stimulus
-    obj_1_transforms = {'retina': True, 'colorize': True, 'scale': False, 'target_set': [37],
-                        'location_targets': {(-1, -1): [37]}, 'colorize_background':'split'}
-    #obj_1_loader = Dataset('mnist', obj_1_transforms).get_loader(bs)
-    obj_1_loader = Dataset('fashion_mnist', obj_1_transforms).get_loader(bs)
-
     dataloaders = (obj_1_loader, obj_2_loader, obj_3_loader, bs)
 
     losses_junk = obj_scene_helper(vae, dataloaders, n, save_img=True, return_loss=True, bpsize=bpsize, bpPortion=bpPortion, object_label=object_label, color_label=color_label, object_classifier=object_classifier, color_classifier=color_classifier, folder_path=folder_path)
